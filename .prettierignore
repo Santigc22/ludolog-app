@@ -1,0 +1,12 @@
+node_modules
+dist
+.next
+coverage
+playwright-report
+test-results
+apps/api/drizzle
+docs
+package-lock.json
+.env
+.env.*
+!.env.example

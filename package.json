@@ -1,0 +1,51 @@
+{
+  "name": "ludoteca-virtual",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24 <25",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail --names api,web \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev -w @ludoteca/api",
+    "dev:web": "npm run dev -w @ludoteca/web",
+    "build": "npm run build -w @ludoteca/contracts && npm run build -w @ludoteca/api && npm run build -w @ludoteca/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "pretest:e2e": "npm run db:test:setup && npm run build",
+    "test:e2e": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-e2e.ps1",
+    "db:generate": "npm run db:generate -w @ludoteca/api",
+    "db:migrate": "npm run db:migrate -w @ludoteca/api",
+    "db:seed": "npm run db:seed -w @ludoteca/api",
+    "db:seed:development": "npm run db:seed:development -w @ludoteca/api",
+    "db:test:setup": "npm run db:test:setup -w @ludoteca/api"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@playwright/test": "1.63.0",
+    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/react": "^16.3.0",
+    "@vitest/coverage-v8": "5.0.1",
+    "concurrently": "^9.2.1",
+    "dotenv": "^17.2.2",
+    "eslint": "9.39.5",
+    "eslint-config-next": "^16.0.0",
+    "eslint-config-prettier": "^10.1.8",
+    "jsdom": "^27.0.0",
+    "prettier": "3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "5.0.1"
+  }
+}

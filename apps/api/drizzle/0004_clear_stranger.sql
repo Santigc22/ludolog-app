@@ -1,0 +1,2 @@
+CREATE INDEX "sessions_user_id_idx" ON "sessions" USING btree ("user_id");--> statement-breakpoint
+ALTER TABLE "sessions" ADD CONSTRAINT "sessions_expiration_order" CHECK ("sessions"."idle_expires_at" <= "sessions"."absolute_expires_at");
