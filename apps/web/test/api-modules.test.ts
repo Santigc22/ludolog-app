@@ -23,7 +23,10 @@ import { getOwnProfile, updateOwnProfile } from "../src/lib/api/profile";
 import { uploadGameCover, uploadOwnAvatar } from "../src/lib/api/media";
 import {
   createPrivateGame,
+  createPublicGame,
+  createPublicGamesBatch,
   getGame,
+  listGameTaxonomyOptions,
   listGames,
   updatePublicGame,
 } from "../src/lib/api/games";
@@ -169,6 +172,7 @@ describe("typed API modules", () => {
 
   test("builds catalog reads and a protected private-game write", async () => {
     await listGames();
+    await listGameTaxonomyOptions();
     await listGames({
       q: " Azul ",
       category: " Abstracto ",
@@ -182,6 +186,22 @@ describe("typed API modules", () => {
       minPlayers: 1,
       maxPlayers: 4,
     });
+    await createPublicGame({
+      name: "Harmonies",
+      minPlayers: 1,
+      maxPlayers: 4,
+      classification: "OFFICIAL",
+    });
+    await createPublicGamesBatch({
+      games: [
+        {
+          name: "Sky Team",
+          minPlayers: 2,
+          maxPlayers: 2,
+          classification: "OFFICIAL",
+        },
+      ],
+    });
     await updatePublicGame("id with spaces", {
       name: " Azul corregido ",
       mechanics: [" Losetas "],
@@ -190,6 +210,11 @@ describe("typed API modules", () => {
 
     expect(apiFetchMock).toHaveBeenCalledWith(
       "games?page=1&pageSize=12&sort=name",
+      expect.anything(),
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "games/taxonomies",
       expect.anything(),
       { cache: "no-store" },
     );
@@ -208,6 +233,38 @@ describe("typed API modules", () => {
       expect.anything(),
       expect.objectContaining({
         method: "POST",
+        headers: expect.objectContaining({ "x-csrf-token": "csrf-token" }),
+      }),
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "games/public",
+      expect.anything(),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          name: "Harmonies",
+          minPlayers: 1,
+          maxPlayers: 4,
+          classification: "OFFICIAL",
+        }),
+        headers: expect.objectContaining({ "x-csrf-token": "csrf-token" }),
+      }),
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "games/public/batch",
+      expect.anything(),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          games: [
+            {
+              name: "Sky Team",
+              minPlayers: 2,
+              maxPlayers: 2,
+              classification: "OFFICIAL",
+            },
+          ],
+        }),
         headers: expect.objectContaining({ "x-csrf-token": "csrf-token" }),
       }),
     );

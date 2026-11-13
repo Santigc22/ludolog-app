@@ -11,8 +11,10 @@ import type {
   CopyListItem,
   GameDetail,
   GameSummary,
+  GameTaxonomyOptionsResponse,
 } from "@ludoteca/contracts";
 
+import { AutocompleteInput } from "../forms/tag-autocomplete";
 import { ManagedImage } from "../media/managed-image";
 import { ApiRequestError } from "../../lib/api/client";
 import { listCollections } from "../../lib/api/collections";
@@ -24,11 +26,20 @@ import {
   moveCopy,
   updateCopy,
 } from "../../lib/api/copies";
-import { getGame, listGames } from "../../lib/api/games";
+import {
+  getGame,
+  listGames,
+  listGameTaxonomyOptions,
+} from "../../lib/api/games";
 
 type CopyCondition = Copy["condition"];
 type LoadState = "loading" | "ready" | "error";
 type Message = { kind: "success" | "error"; text: string };
+
+const emptyTaxonomyOptions: GameTaxonomyOptionsResponse = {
+  mechanics: [],
+  categories: [],
+};
 
 const conditions: ReadonlyArray<[CopyCondition, string]> = [
   ["NEW", "Nueva"],
@@ -123,8 +134,24 @@ export function CopyInventoryWorkspace({
   const [draftMaxPlayers, setDraftMaxPlayers] = useState("");
   const [filterError, setFilterError] = useState<string | null>(null);
   const [totalItems, setTotalItems] = useState(0);
+  const [taxonomyOptions, setTaxonomyOptions] =
+    useState<GameTaxonomyOptionsResponse>(emptyTaxonomyOptions);
 
   const canManage = collection.canEdit && collection.status === "ACTIVE";
+
+  useEffect(() => {
+    let active = true;
+    void listGameTaxonomyOptions()
+      .then((response) => {
+        if (active) setTaxonomyOptions(response);
+      })
+      .catch(() => {
+        if (active) setTaxonomyOptions(emptyTaxonomyOptions);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -659,22 +686,20 @@ export function CopyInventoryWorkspace({
             placeholder="Ej. Azul"
           />
         </label>
-        <label>
-          Mecánica
-          <input
-            value={draftMechanic}
-            onChange={(event) => setDraftMechanic(event.target.value)}
-            placeholder="Ej. Dice rolling"
-          />
-        </label>
-        <label>
-          Categoría
-          <input
-            value={draftCategory}
-            onChange={(event) => setDraftCategory(event.target.value)}
-            placeholder="Ej. Cooperativo"
-          />
-        </label>
+        <AutocompleteInput
+          label="Mecánica"
+          value={draftMechanic}
+          onChange={setDraftMechanic}
+          suggestions={taxonomyOptions.mechanics}
+          placeholder="Ej. Dice rolling"
+        />
+        <AutocompleteInput
+          label="Categoría"
+          value={draftCategory}
+          onChange={setDraftCategory}
+          suggestions={taxonomyOptions.categories}
+          placeholder="Ej. Cooperativo"
+        />
         <label>
           Jugadores desde
           <input

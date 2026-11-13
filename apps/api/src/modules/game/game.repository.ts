@@ -1,10 +1,15 @@
+import { randomUUID } from "node:crypto";
+
 import type {
   GameDetail,
   GameEdition,
   GameListQuery,
   GameListResponse,
   GameSummary,
+  GameTaxonomyOptionsResponse,
+  NormalizedBulkCreatePublicGamesRequest,
   NormalizedCreatePrivateGameRequest,
+  NormalizedCreatePublicGameRequest,
   NormalizedUpdatePublicGameRequest,
 } from "@ludoteca/contracts";
 import type { PoolClient } from "pg";
@@ -125,6 +130,38 @@ const visibleGameCondition = `(
     AND games.created_by_user_id = $1
   )
 ) AND games.archived_at IS NULL`;
+
+export async function findVisibleGameTaxonomyOptions(
+  viewerUserId: string | null,
+): Promise<GameTaxonomyOptionsResponse> {
+  const [mechanicsResult, categoriesResult] = await Promise.all([
+    databasePool.query<{ name: string }>(
+      `SELECT mechanics.name
+       FROM mechanics
+       INNER JOIN game_mechanics ON game_mechanics.mechanic_id = mechanics.id
+       INNER JOIN games ON games.id = game_mechanics.game_id
+       WHERE ${visibleGameCondition}
+       GROUP BY mechanics.id, mechanics.name
+       ORDER BY lower(mechanics.name), mechanics.id`,
+      [viewerUserId],
+    ),
+    databasePool.query<{ name: string }>(
+      `SELECT categories.name
+       FROM categories
+       INNER JOIN game_categories ON game_categories.category_id = categories.id
+       INNER JOIN games ON games.id = game_categories.game_id
+       WHERE ${visibleGameCondition}
+       GROUP BY categories.id, categories.name
+       ORDER BY lower(categories.name), categories.id`,
+      [viewerUserId],
+    ),
+  ]);
+
+  return {
+    mechanics: mechanicsResult.rows.map(({ name }) => name),
+    categories: categoriesResult.rows.map(({ name }) => name),
+  };
+}
 
 export async function findVisibleGames(
   viewerUserId: string | null,
@@ -368,6 +405,175 @@ export async function createPrivateGame(
       editions: [],
       canManageCatalog: false,
     };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+type DirectPublicationMode = "DIRECT_ADMIN" | "DIRECT_ADMIN_BATCH";
+
+async function createPublicGameWithClient(
+  client: PoolClient,
+  adminUserId: string,
+  input: NormalizedCreatePublicGameRequest,
+  publishedAt: Date,
+  publicationMode: DirectPublicationMode,
+  batchId: string | null,
+): Promise<GameDetail> {
+  const result = await client.query<GameRow>(
+    `INSERT INTO games (
+         name, description, publication_year, min_players, max_players,
+         min_duration_minutes, max_duration_minutes, min_age, max_age,
+         complexity, classification_code, visibility_code,
+         moderation_status_code, created_by_user_id, created_at, updated_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+         $11, 'PUBLIC', 'APPROVED', $12, $13, $13
+       )
+       RETURNING id, name, description, publication_year, min_players,
+                 max_players, min_duration_minutes, max_duration_minutes,
+                 min_age, max_age, complexity, classification_code,
+                 visibility_code, moderation_status_code, cover_media_id,
+                 ARRAY[]::text[] AS mechanics,
+                 ARRAY[]::text[] AS categories,
+                 true AS is_owned_by_viewer, created_at, updated_at`,
+    [
+      input.name,
+      input.description ?? null,
+      input.publicationYear ?? null,
+      input.minPlayers,
+      input.maxPlayers,
+      input.minDurationMinutes ?? null,
+      input.maxDurationMinutes ?? null,
+      input.minAge ?? null,
+      input.maxAge ?? null,
+      input.complexity ?? null,
+      input.classification,
+      adminUserId,
+      publishedAt,
+    ],
+  );
+  const row = result.rows[0];
+  if (row === undefined) {
+    throw new Error("Direct public game insert did not return a row");
+  }
+
+  const mechanics = input.mechanics ?? [];
+  const categories = input.categories ?? [];
+  await replaceGameMechanics(client, row.id, mechanics);
+  await replaceGameCategories(client, row.id, categories);
+
+  const directPublicationNote =
+    publicationMode === "DIRECT_ADMIN_BATCH"
+      ? "Publicación directa administrativa por lote."
+      : "Publicación directa administrativa.";
+  const insertedCase = await client.query<{ id: string }>(
+    `INSERT INTO moderation_cases (
+         game_id, current_status_code, submitted_by_user_id,
+         assigned_to_user_id, submission_note, resolution_note,
+         created_at, updated_at, closed_at
+       ) VALUES ($1, 'APPROVED', $2, $2, $3, $3, $4, $4, $4)
+       RETURNING id`,
+    [row.id, adminUserId, directPublicationNote, publishedAt],
+  );
+  const moderationCaseId = insertedCase.rows[0]!.id;
+  await client.query(
+    `INSERT INTO moderation_actions (
+         moderation_case_id, actor_user_id, from_status_code,
+         to_status_code, reason, created_at
+       ) VALUES ($1, $2, NULL, 'APPROVED', $3, $4)`,
+    [moderationCaseId, adminUserId, directPublicationNote, publishedAt],
+  );
+  await client.query(
+    `INSERT INTO audit_logs (
+         actor_user_id, action, resource_type, resource_id,
+         before_state, after_state, context, occurred_at
+       ) VALUES ($1, 'game.public_created_directly', 'GAME', $2,
+                 NULL, $3::jsonb, $4::jsonb, $5)`,
+    [
+      adminUserId,
+      row.id,
+      JSON.stringify({
+        classification: input.classification,
+        visibility: "PUBLIC",
+        moderationStatus: "APPROVED",
+      }),
+      JSON.stringify({
+        moderationCaseId,
+        publicationMode,
+        batchId,
+      }),
+      publishedAt,
+    ],
+  );
+
+  return {
+    ...mapGame(row),
+    mechanics,
+    categories,
+    editions: [],
+    canManageCatalog: true,
+  };
+}
+
+export async function createPublicGameDirectly(
+  adminUserId: string,
+  input: NormalizedCreatePublicGameRequest,
+): Promise<GameDetail> {
+  const client = await databasePool.connect();
+  try {
+    await client.query("BEGIN");
+    const time = await client.query<{ published_at: Date }>(
+      "SELECT clock_timestamp() AS published_at",
+    );
+    const game = await createPublicGameWithClient(
+      client,
+      adminUserId,
+      input,
+      time.rows[0]!.published_at,
+      "DIRECT_ADMIN",
+      null,
+    );
+    await client.query("COMMIT");
+    return game;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function createPublicGamesBatch(
+  adminUserId: string,
+  input: NormalizedBulkCreatePublicGamesRequest,
+): Promise<GameDetail[]> {
+  const client = await databasePool.connect();
+  try {
+    await client.query("BEGIN");
+    const time = await client.query<{ published_at: Date }>(
+      "SELECT clock_timestamp() AS published_at",
+    );
+    const publishedAt = time.rows[0]!.published_at;
+    const batchId = randomUUID();
+    const games: GameDetail[] = [];
+    for (const game of input.games) {
+      games.push(
+        await createPublicGameWithClient(
+          client,
+          adminUserId,
+          game,
+          publishedAt,
+          "DIRECT_ADMIN_BATCH",
+          batchId,
+        ),
+      );
+    }
+    await client.query("COMMIT");
+    return games;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

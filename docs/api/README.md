@@ -33,9 +33,12 @@ directorio. Como mínimo debe indicar:
 | `PATCH` | `/api/v1/collections/:collectionId` | Edita metadatos de una ludoteca activa | Sí + permiso + rol + CSRF |
 | `POST` | `/api/v1/collections/:collectionId/archive` | Archiva lógicamente una ludoteca | Sí + permiso + `OWNER` + CSRF |
 | `GET` | `/api/v1/games` | Lista y busca los juegos visibles para el actor | Opcional para incluir privados propios |
+| `GET` | `/api/v1/games/taxonomies` | Lista mecánicas y categorías visibles para autocompletado | Opcional para incluir privados propios |
 | `GET` | `/api/v1/games/:gameId` | Consulta un juego visible y sus ediciones | Opcional para privados propios |
 | `PATCH` | `/api/v1/games/:gameId` | Administra una ficha pública aprobada | `CONTENT_MANAGER` o `ADMIN` + CSRF |
 | `POST` | `/api/v1/games` | Crea un juego privado propiedad del usuario | Sí + permiso + CSRF |
+| `POST` | `/api/v1/games/public` | Crea y aprueba directamente una ficha pública | `ADMIN` mediante permiso exclusivo + CSRF |
+| `POST` | `/api/v1/games/public/batch` | Crea y aprueba hasta 500 fichas públicas en una transacción | `ADMIN` mediante permiso exclusivo + CSRF |
 | `POST` | `/api/v1/games/:gameId/cover` | Guarda o reemplaza la portada del juego | Propietario privado o moderación + CSRF |
 | `GET` | `/api/v1/media/:mediaId` | Sirve una imagen aplicando su visibilidad | Opcional según el recurso |
 | `POST` | `/api/v1/games/:gameId/moderation-submissions` | Propone un juego privado propio para publicación global | Sí + permiso + CSRF |
@@ -62,9 +65,14 @@ los contratos detallados. La creación de ludotecas se documenta en
 [collection-update-archive.md](./collection-update-archive.md).
 El catálogo visible, sus filtros y ordenamientos se documentan en
 [game-list.md](./game-list.md), y el detalle con ediciones en
-[game-detail.md](./game-detail.md). La creación privada se documenta en
+[game-detail.md](./game-detail.md). Las opciones de autocompletado están en
+[game-taxonomies.md](./game-taxonomies.md). La creación privada se documenta en
 [game-create-private.md](./game-create-private.md), y la administración de
-fichas públicas en [game-update-public.md](./game-update-public.md).
+fichas públicas en [game-update-public.md](./game-update-public.md). La
+publicación administrativa directa se documenta en
+[game-create-public-direct.md](./game-create-public-direct.md).
+La publicación masiva desde CSV se documenta en
+[game-create-public-batch.md](./game-create-public-batch.md).
 El flujo de propuesta, cola, aprobación y rechazo está en
 [game-moderation.md](./game-moderation.md).
 Las cargas y lecturas de avatares y portadas se detallan en

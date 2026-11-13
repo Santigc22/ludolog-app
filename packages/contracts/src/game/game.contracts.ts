@@ -78,6 +78,11 @@ export const GameListResponseSchema = z.object({
   pagination: PaginationMetaSchema,
 });
 
+export const GameTaxonomyOptionsResponseSchema = z.object({
+  mechanics: z.array(z.string().min(1).max(120)),
+  categories: z.array(z.string().min(1).max(120)),
+});
+
 export const GameIdParamsSchema = z.object({
   gameId: z.uuid(),
 });
@@ -122,57 +127,107 @@ const normalizedTagList = z
     });
   });
 
+const createGameFields = {
+  name: z.string().trim().min(1).max(220),
+  description: nullableText(2_000).optional(),
+  publicationYear: z.number().int().min(0).max(32_767).nullable().optional(),
+  minPlayers: z.number().int().min(1).max(32_767),
+  maxPlayers: z.number().int().min(1).max(32_767),
+  minDurationMinutes: z.number().int().min(0).nullable().optional(),
+  maxDurationMinutes: z.number().int().min(0).nullable().optional(),
+  minAge: z.number().int().min(0).max(32_767).nullable().optional(),
+  maxAge: z.number().int().min(0).max(32_767).nullable().optional(),
+  complexity: z.number().min(0).max(5).nullable().optional(),
+  mechanics: normalizedTagList.optional(),
+  categories: normalizedTagList.optional(),
+};
+
+type GameRangeFields = Readonly<{
+  minPlayers: number;
+  maxPlayers: number;
+  minDurationMinutes?: number | null | undefined;
+  maxDurationMinutes?: number | null | undefined;
+  minAge?: number | null | undefined;
+  maxAge?: number | null | undefined;
+}>;
+
+function validateGameRanges(value: GameRangeFields, context: z.RefinementCtx) {
+  if (value.maxPlayers < value.minPlayers) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Maximum players must be greater than or equal to minimum players.",
+      path: ["maxPlayers"],
+    });
+  }
+  if (
+    value.minDurationMinutes != null &&
+    value.maxDurationMinutes != null &&
+    value.maxDurationMinutes < value.minDurationMinutes
+  ) {
+    context.addIssue({
+      code: "custom",
+      message:
+        "Maximum duration must be greater than or equal to minimum duration.",
+      path: ["maxDurationMinutes"],
+    });
+  }
+  if (
+    value.minAge != null &&
+    value.maxAge != null &&
+    value.maxAge < value.minAge
+  ) {
+    context.addIssue({
+      code: "custom",
+      message: "Maximum age must be greater than or equal to minimum age.",
+      path: ["maxAge"],
+    });
+  }
+}
+
 export const CreatePrivateGameRequestSchema = z
+  .object(createGameFields)
+  .strict()
+  .superRefine(validateGameRanges);
+
+export const CreatePrivateGameResponseSchema = GameDetailResponseSchema;
+
+export const CreatePublicGameRequestSchema = z
   .object({
-    name: z.string().trim().min(1).max(220),
-    description: nullableText(2_000).optional(),
-    publicationYear: z.number().int().min(0).max(32_767).nullable().optional(),
-    minPlayers: z.number().int().min(1).max(32_767),
-    maxPlayers: z.number().int().min(1).max(32_767),
-    minDurationMinutes: z.number().int().min(0).nullable().optional(),
-    maxDurationMinutes: z.number().int().min(0).nullable().optional(),
-    minAge: z.number().int().min(0).max(32_767).nullable().optional(),
-    maxAge: z.number().int().min(0).max(32_767).nullable().optional(),
-    complexity: z.number().min(0).max(5).nullable().optional(),
-    mechanics: normalizedTagList.optional(),
-    categories: normalizedTagList.optional(),
+    ...createGameFields,
+    classification: z.enum(["OFFICIAL", "COMMUNITY"]).default("OFFICIAL"),
+  })
+  .strict()
+  .superRefine(validateGameRanges);
+
+export const CreatePublicGameResponseSchema = GameDetailResponseSchema;
+
+export const BulkCreatePublicGamesRequestSchema = z
+  .object({
+    games: z.array(CreatePublicGameRequestSchema).min(1).max(500),
   })
   .strict()
   .superRefine((value, context) => {
-    if (value.maxPlayers < value.minPlayers) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "Maximum players must be greater than or equal to minimum players.",
-        path: ["maxPlayers"],
-      });
-    }
-    if (
-      value.minDurationMinutes != null &&
-      value.maxDurationMinutes != null &&
-      value.maxDurationMinutes < value.minDurationMinutes
-    ) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "Maximum duration must be greater than or equal to minimum duration.",
-        path: ["maxDurationMinutes"],
-      });
-    }
-    if (
-      value.minAge != null &&
-      value.maxAge != null &&
-      value.maxAge < value.minAge
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "Maximum age must be greater than or equal to minimum age.",
-        path: ["maxAge"],
-      });
-    }
+    const seen = new Map<string, number>();
+    value.games.forEach((game, index) => {
+      const normalizedName = game.name.toLocaleLowerCase();
+      const previousIndex = seen.get(normalizedName);
+      if (previousIndex !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: `Duplicate game name in rows ${previousIndex + 1} and ${index + 1}.`,
+          path: ["games", index, "name"],
+        });
+      } else {
+        seen.set(normalizedName, index);
+      }
+    });
   });
 
-export const CreatePrivateGameResponseSchema = GameDetailResponseSchema;
+export const BulkCreatePublicGamesResponseSchema = z.object({
+  games: z.array(GameDetailSchema),
+  createdCount: z.number().int().min(1),
+});
 
 const editableGameFields = {
   name: z.string().trim().min(1).max(220),
@@ -250,6 +305,9 @@ export const UpdatePublicGameResponseSchema = GameDetailResponseSchema;
 
 export type GameListQuery = z.output<typeof GameListQuerySchema>;
 export type GameListResponse = z.infer<typeof GameListResponseSchema>;
+export type GameTaxonomyOptionsResponse = z.infer<
+  typeof GameTaxonomyOptionsResponseSchema
+>;
 export type GameSummary = z.infer<typeof GameSummarySchema>;
 export type GameIdParams = z.infer<typeof GameIdParamsSchema>;
 export type GameEdition = z.infer<typeof GameEditionSchema>;
@@ -263,6 +321,24 @@ export type NormalizedCreatePrivateGameRequest = z.output<
 >;
 export type CreatePrivateGameResponse = z.infer<
   typeof CreatePrivateGameResponseSchema
+>;
+export type CreatePublicGameRequest = z.input<
+  typeof CreatePublicGameRequestSchema
+>;
+export type NormalizedCreatePublicGameRequest = z.output<
+  typeof CreatePublicGameRequestSchema
+>;
+export type CreatePublicGameResponse = z.infer<
+  typeof CreatePublicGameResponseSchema
+>;
+export type BulkCreatePublicGamesRequest = z.input<
+  typeof BulkCreatePublicGamesRequestSchema
+>;
+export type NormalizedBulkCreatePublicGamesRequest = z.output<
+  typeof BulkCreatePublicGamesRequestSchema
+>;
+export type BulkCreatePublicGamesResponse = z.infer<
+  typeof BulkCreatePublicGamesResponseSchema
 >;
 export type UpdatePublicGameRequest = z.input<
   typeof UpdatePublicGameRequestSchema

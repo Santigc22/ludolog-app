@@ -5,9 +5,13 @@ import { GameCatalogWorkspace } from "../src/components/games/game-catalog-works
 import { GameDetailWorkspace } from "../src/components/games/game-detail-workspace";
 import { ApiRequestError } from "../src/lib/api/client";
 
+const getCurrentSession = vi.fn();
 const listGames = vi.fn();
 const createPrivateGame = vi.fn();
+const createPublicGame = vi.fn();
+const createPublicGamesBatch = vi.fn();
 const getGame = vi.fn();
+const listGameTaxonomyOptions = vi.fn();
 const updatePublicGame = vi.fn();
 const submitGameForModeration = vi.fn();
 const listCollections = vi.fn();
@@ -15,11 +19,26 @@ const createCopy = vi.fn();
 const uploadGameCover = vi.fn();
 const imageFileError = vi.fn();
 
+vi.mock("../src/lib/api/auth", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/lib/api/auth")>();
+  return {
+    ...original,
+    getCurrentSession: (...arguments_: unknown[]) =>
+      getCurrentSession(...arguments_),
+  };
+});
+
 vi.mock("../src/lib/api/games", () => ({
   listGames: (...arguments_: unknown[]) => listGames(...arguments_),
   createPrivateGame: (...arguments_: unknown[]) =>
     createPrivateGame(...arguments_),
+  createPublicGame: (...arguments_: unknown[]) =>
+    createPublicGame(...arguments_),
+  createPublicGamesBatch: (...arguments_: unknown[]) =>
+    createPublicGamesBatch(...arguments_),
   getGame: (...arguments_: unknown[]) => getGame(...arguments_),
+  listGameTaxonomyOptions: (...arguments_: unknown[]) =>
+    listGameTaxonomyOptions(...arguments_),
   updatePublicGame: (...arguments_: unknown[]) =>
     updatePublicGame(...arguments_),
 }));
@@ -96,11 +115,33 @@ const collection = {
 describe("GameCatalogWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getCurrentSession.mockResolvedValue({ user: { roles: ["USER"] } });
+    listGameTaxonomyOptions.mockResolvedValue({
+      mechanics: ["Construcción de mazos", "Drafting"],
+      categories: ["Cartas", "Mazo de cartas"],
+    });
     imageFileError.mockReturnValue(null);
     listGames.mockResolvedValue({
       games: [game, privateGame],
       pagination: { page: 1, pageSize: 12, totalItems: 13, totalPages: 2 },
     });
+  });
+
+  test("keeps the public catalog visible but hides creation from visitors", async () => {
+    getCurrentSession.mockRejectedValueOnce(
+      new ApiRequestError(401, "AUTHENTICATION_REQUIRED"),
+    );
+
+    render(<GameCatalogWorkspace />);
+
+    expect(await screen.findByText("Azul")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: "Inicia sesión para crear" }),
+    ).toHaveAttribute("href", "/acceso");
+    expect(
+      screen.queryByRole("button", { name: "Crear juego privado" }),
+    ).not.toBeInTheDocument();
+    expect(createPrivateGame).not.toHaveBeenCalled();
   });
 
   test("searches, sorts, paginates and identifies the viewer's private game", async () => {
@@ -154,6 +195,71 @@ describe("GameCatalogWorkspace", () => {
         expect.objectContaining({ page: 2 }),
       ),
     );
+  });
+
+  test("lets an admin publish a game directly with an approved history", async () => {
+    getCurrentSession.mockResolvedValueOnce({ user: { roles: ["ADMIN"] } });
+    createPublicGame.mockResolvedValueOnce({
+      game: {
+        ...game,
+        id: privateGame.id,
+        name: "Harmonies",
+        minPlayers: 1,
+        maxPlayers: 4,
+        isOwnedByViewer: true,
+        canManageCatalog: true,
+      },
+    });
+    render(<GameCatalogWorkspace />);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Publicar juego directamente",
+      }),
+    );
+    expect(screen.getByText("Nuevo juego público")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Nombre"), {
+      target: { value: "Harmonies" },
+    });
+    fireEvent.change(screen.getByLabelText("Jugadores máximos"), {
+      target: { value: "4" },
+    });
+    fireEvent.change(screen.getByLabelText("Clasificación"), {
+      target: { value: "COMMUNITY" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Publicar y aprobar" }));
+
+    await waitFor(() =>
+      expect(createPublicGame).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Harmonies",
+          minPlayers: 1,
+          maxPlayers: 4,
+          classification: "COMMUNITY",
+        }),
+      ),
+    );
+    expect(
+      await screen.findByText(/figura como aprobado por ti/),
+    ).toBeInTheDocument();
+    expect(createPrivateGame).not.toHaveBeenCalled();
+  });
+
+  test("shows batch creation only to administrators", async () => {
+    const regularUser = render(<GameCatalogWorkspace />);
+    await screen.findByText("Prototipo familiar");
+    expect(
+      screen.queryByRole("button", { name: "Carga por lote" }),
+    ).not.toBeInTheDocument();
+    regularUser.unmount();
+
+    getCurrentSession.mockResolvedValueOnce({ user: { roles: ["ADMIN"] } });
+    render(<GameCatalogWorkspace />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Carga por lote" }),
+    );
+
+    expect(screen.getByText("Cargar juegos por lote")).toBeInTheDocument();
+    expect(screen.getByText("Descargar plantilla CSV")).toBeInTheDocument();
   });
 
   test("keeps an approved game visually public for its original owner", async () => {
@@ -389,6 +495,10 @@ describe("GameCatalogWorkspace", () => {
 describe("GameDetailWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listGameTaxonomyOptions.mockResolvedValue({
+      mechanics: ["Construcción de mazos", "Drafting"],
+      categories: ["Abstracto", "Cartas", "Mazo de cartas"],
+    });
     listCollections.mockResolvedValue({
       collections: [collection],
       pagination: { page: 1, pageSize: 100, totalItems: 1, totalPages: 1 },
@@ -542,12 +652,21 @@ describe("GameDetailWorkspace", () => {
     fireEvent.change(screen.getByLabelText("Nombre del juego"), {
       target: { value: "Azul corregido" },
     });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Quitar Colocación de losetas" }),
+    );
     fireEvent.change(screen.getByLabelText("Mecánicas"), {
-      target: { value: "Drafting\nColección de conjuntos" },
+      target: { value: "Drafting" },
     });
+    fireEvent.click(screen.getAllByRole("button", { name: "Añadir" })[0]!);
+    fireEvent.change(screen.getByLabelText("Mecánicas"), {
+      target: { value: "Colección de conjuntos" },
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "Añadir" })[0]!);
     fireEvent.change(screen.getByLabelText("Categorías"), {
-      target: { value: "Abstracto\nFamiliar" },
+      target: { value: "Familiar" },
     });
+    fireEvent.click(screen.getAllByRole("button", { name: "Añadir" })[1]!);
     fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
 
     await waitFor(() =>

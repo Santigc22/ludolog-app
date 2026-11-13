@@ -413,6 +413,7 @@ export const permissionSeeds = [
   ["moderation.merge", "Merge duplicate games"],
   ["catalog.category.manage", "Manage public categories"],
   ["catalog.game.manage", "Manage approved public games"],
+  ["catalog.game.publish_direct", "Publish public games directly"],
   ["catalog.mechanic.manage", "Manage public mechanics"],
   ["catalog.publisher.manage", "Manage publishers"],
   ["user.manage", "Administrative user management"],

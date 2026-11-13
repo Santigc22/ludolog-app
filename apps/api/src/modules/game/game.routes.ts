@@ -9,7 +9,10 @@ import { requirePermission } from "../../middleware/authorization.js";
 import { requireWebOrigin } from "../../middleware/require-web-origin.js";
 import {
   createGame,
+  createPublicGame,
+  createPublicGames,
   getGame,
+  listGameTaxonomyOptions,
   listGames,
   updateGame,
 } from "./game.controller.js";
@@ -27,6 +30,13 @@ gameRouter.options("/games", requireWebOrigin, (_request, response) => {
 
 gameRouter.get("/games", requireWebOrigin, optionalAuth, listGames);
 
+gameRouter.get(
+  "/games/taxonomies",
+  requireWebOrigin,
+  optionalAuth,
+  listGameTaxonomyOptions,
+);
+
 gameRouter.post(
   "/games",
   requireWebOrigin,
@@ -34,6 +44,46 @@ gameRouter.post(
   requirePermission("game.create"),
   requireCsrf,
   createGame,
+);
+
+gameRouter.options("/games/public", requireWebOrigin, (_request, response) => {
+  response.setHeader("Access-Control-Allow-Methods", "POST");
+  response.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, X-CSRF-Token",
+  );
+  response.sendStatus(204);
+});
+
+gameRouter.post(
+  "/games/public",
+  requireWebOrigin,
+  requireAuth,
+  requirePermission("catalog.game.publish_direct"),
+  requireCsrf,
+  createPublicGame,
+);
+
+gameRouter.options(
+  "/games/public/batch",
+  requireWebOrigin,
+  (_request, response) => {
+    response.setHeader("Access-Control-Allow-Methods", "POST");
+    response.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, X-CSRF-Token",
+    );
+    response.sendStatus(204);
+  },
+);
+
+gameRouter.post(
+  "/games/public/batch",
+  requireWebOrigin,
+  requireAuth,
+  requirePermission("catalog.game.publish_direct"),
+  requireCsrf,
+  createPublicGames,
 );
 
 gameRouter.options("/games/:gameId", requireWebOrigin, (_request, response) => {

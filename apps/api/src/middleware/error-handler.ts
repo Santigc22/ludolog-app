@@ -8,6 +8,23 @@ export const errorHandler: ErrorRequestHandler<
   Record<string, string>,
   ErrorResponse
 > = (error: unknown, request, response, _next) => {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "type" in error &&
+    error.type === "entity.too.large"
+  ) {
+    response.status(413).json({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "The request body is too large.",
+        details: null,
+        requestId: request.requestId,
+      },
+    });
+    return;
+  }
+
   if (error instanceof ApplicationError) {
     response.status(error.statusCode).json({
       error: {

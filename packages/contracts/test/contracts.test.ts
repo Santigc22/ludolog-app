@@ -1,11 +1,13 @@
 import { expect, test } from "vitest";
 
 import {
+  BulkCreatePublicGamesRequestSchema,
   CollectionDetailResponseSchema,
   CollectionIdParamsSchema,
   CollectionListQuerySchema,
   CollectionListResponseSchema,
   CreatePrivateGameRequestSchema,
+  CreatePublicGameRequestSchema,
   CreateCopyRequestSchema,
   CopyListQuerySchema,
   CreateCollectionRequestSchema,
@@ -15,6 +17,7 @@ import {
   ExitCopyRequestSchema,
   GameListQuerySchema,
   GameListResponseSchema,
+  GameTaxonomyOptionsResponseSchema,
   GameDetailResponseSchema,
   GameIdParamsSchema,
   GameModerationListQuerySchema,
@@ -32,6 +35,18 @@ import {
   UpdateOwnProfileRequestSchema,
   UpdatePublicGameRequestSchema,
 } from "../src/index.js";
+
+test("validates game taxonomy options", () => {
+  expect(
+    GameTaxonomyOptionsResponseSchema.parse({
+      mechanics: ["Construcción de mazos"],
+      categories: ["Cartas", "Mazo de cartas"],
+    }),
+  ).toEqual({
+    mechanics: ["Construcción de mazos"],
+    categories: ["Cartas", "Mazo de cartas"],
+  });
+});
 
 test("normalizes moderation submissions and requires a useful rejection reason", () => {
   expect(
@@ -82,6 +97,56 @@ test("normalizes public game administration fields", () => {
   expect(
     UpdatePublicGameRequestSchema.safeParse({ minPlayers: 5, maxPlayers: 2 })
       .success,
+  ).toBe(false);
+});
+
+test("normalizes direct public game creation and defaults to official", () => {
+  expect(
+    CreatePublicGameRequestSchema.parse({
+      name: "  Harmonies  ",
+      minPlayers: 1,
+      maxPlayers: 4,
+      categories: [" Naturaleza "],
+    }),
+  ).toMatchObject({
+    name: "Harmonies",
+    classification: "OFFICIAL",
+    categories: ["Naturaleza"],
+  });
+  expect(
+    CreatePublicGameRequestSchema.safeParse({
+      name: "Privado",
+      minPlayers: 1,
+      maxPlayers: 1,
+      classification: "PRIVATE",
+    }).success,
+  ).toBe(false);
+});
+
+test("validates direct public game batches and rejects repeated names", () => {
+  const parsed = BulkCreatePublicGamesRequestSchema.parse({
+    games: [
+      { name: " Azul ", minPlayers: 2, maxPlayers: 4 },
+      {
+        name: "Sky Team",
+        minPlayers: 2,
+        maxPlayers: 2,
+        classification: "COMMUNITY",
+      },
+    ],
+  });
+
+  expect(parsed.games).toMatchObject([
+    { name: "Azul", classification: "OFFICIAL" },
+    { name: "Sky Team", classification: "COMMUNITY" },
+  ]);
+  expect(
+    BulkCreatePublicGamesRequestSchema.safeParse({
+      games: [
+        { name: "Azul", minPlayers: 2, maxPlayers: 4 },
+        { name: " azul ", minPlayers: 2, maxPlayers: 4 },
+      ],
+    }).success,
   ).toBe(false);
 });
 

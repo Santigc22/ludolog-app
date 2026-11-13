@@ -1,9 +1,14 @@
 import type {
+  BulkCreatePublicGamesResponse,
   CreatePrivateGameResponse,
+  CreatePublicGameResponse,
   GameDetailResponse,
   GameListQuery,
   GameListResponse,
+  GameTaxonomyOptionsResponse,
   NormalizedCreatePrivateGameRequest,
+  NormalizedCreatePublicGameRequest,
+  NormalizedBulkCreatePublicGamesRequest,
   NormalizedUpdatePublicGameRequest,
   UpdatePublicGameResponse,
 } from "@ludoteca/contracts";
@@ -11,8 +16,11 @@ import type {
 import { ApplicationError } from "../../errors/application-error.js";
 import {
   createPrivateGame,
+  createPublicGameDirectly,
+  createPublicGamesBatch,
   findVisibleGameDetail,
   findVisibleGames,
+  findVisibleGameTaxonomyOptions,
   updatePublicGame,
 } from "./game.repository.js";
 
@@ -21,6 +29,21 @@ export async function createPrivateGameForUser(
   input: NormalizedCreatePrivateGameRequest,
 ): Promise<CreatePrivateGameResponse> {
   return { game: await createPrivateGame(userId, input) };
+}
+
+export async function createPublicGameForAdmin(
+  userId: string,
+  input: NormalizedCreatePublicGameRequest,
+): Promise<CreatePublicGameResponse> {
+  return { game: await createPublicGameDirectly(userId, input) };
+}
+
+export async function createPublicGamesForAdmin(
+  userId: string,
+  input: NormalizedBulkCreatePublicGamesRequest,
+): Promise<BulkCreatePublicGamesResponse> {
+  const games = await createPublicGamesBatch(userId, input);
+  return { games, createdCount: games.length };
 }
 
 export async function updatePublicGameForManager(
@@ -56,6 +79,12 @@ export async function listGamesForViewer(
   query: GameListQuery,
 ): Promise<GameListResponse> {
   return findVisibleGames(viewerUserId, query);
+}
+
+export async function listGameTaxonomyOptionsForViewer(
+  viewerUserId: string | null,
+): Promise<GameTaxonomyOptionsResponse> {
+  return findVisibleGameTaxonomyOptions(viewerUserId);
 }
 
 export async function getGameForViewer(

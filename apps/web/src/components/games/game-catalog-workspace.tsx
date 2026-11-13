@@ -4,15 +4,34 @@ import Link from "next/link";
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 
-import type { GameListQuery, GameSummary } from "@ludoteca/contracts";
+import type {
+  GameListQuery,
+  GameSummary,
+  GameTaxonomyOptionsResponse,
+} from "@ludoteca/contracts";
 
+import { AutocompleteInput, TagAutocomplete } from "../forms/tag-autocomplete";
 import { ManagedImage } from "../media/managed-image";
+import { AdminGameBulkImport } from "./admin-game-bulk-import";
 import { ApiRequestError } from "../../lib/api/client";
-import { createPrivateGame, listGames } from "../../lib/api/games";
+import { getCurrentSession, SESSION_CHANGED_EVENT } from "../../lib/api/auth";
+import {
+  createPrivateGame,
+  createPublicGame,
+  listGames,
+  listGameTaxonomyOptions,
+} from "../../lib/api/games";
 import { imageFileError, uploadGameCover } from "../../lib/api/media";
 
 type ViewState = "loading" | "ready" | "error";
+type SessionState = "checking" | "authenticated" | "anonymous";
+type CreationMode = "private" | "public" | "bulk";
 type FieldErrors = Readonly<Record<string, string>>;
+
+const emptyTaxonomyOptions: GameTaxonomyOptionsResponse = {
+  mechanics: [],
+  categories: [],
+};
 
 function validationFields(error: unknown): FieldErrors {
   if (!(error instanceof ApiRequestError) || error.code !== "VALIDATION_ERROR")
@@ -48,6 +67,7 @@ function playerLabel(game: GameSummary) {
 
 export function GameCatalogWorkspace() {
   const [viewState, setViewState] = useState<ViewState>("loading");
+  const [sessionState, setSessionState] = useState<SessionState>("checking");
   const [games, setGames] = useState<GameSummary[]>([]);
   const [query, setQuery] = useState("");
   const [draftQuery, setDraftQuery] = useState("");
@@ -66,10 +86,63 @@ export function GameCatalogWorkspace() {
   const [totalItems, setTotalItems] = useState(0);
   const [reload, setReload] = useState(0);
   const [showCreate, setShowCreate] = useState(false);
+  const [creationMode, setCreationMode] = useState<CreationMode>("private");
+  const [canPublishDirectly, setCanPublishDirectly] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [createdGameId, setCreatedGameId] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [taxonomyOptions, setTaxonomyOptions] =
+    useState<GameTaxonomyOptionsResponse>(emptyTaxonomyOptions);
+
+  useEffect(() => {
+    let active = true;
+
+    function refreshSession() {
+      void getCurrentSession()
+        .then((response) => {
+          if (active) {
+            setCanPublishDirectly(response.user.roles.includes("ADMIN"));
+            setSessionState("authenticated");
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setSessionState("anonymous");
+            setCanPublishDirectly(false);
+            setShowCreate(false);
+          }
+        });
+    }
+
+    refreshSession();
+    window.addEventListener(SESSION_CHANGED_EVENT, refreshSession);
+    return () => {
+      active = false;
+      window.removeEventListener(SESSION_CHANGED_EVENT, refreshSession);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    function refreshTaxonomies() {
+      void listGameTaxonomyOptions()
+        .then((response) => {
+          if (active) setTaxonomyOptions(response);
+        })
+        .catch(() => {
+          if (active) setTaxonomyOptions(emptyTaxonomyOptions);
+        });
+    }
+
+    refreshTaxonomies();
+    window.addEventListener(SESSION_CHANGED_EVENT, refreshTaxonomies);
+    return () => {
+      active = false;
+      window.removeEventListener(SESSION_CHANGED_EVENT, refreshTaxonomies);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -136,6 +209,16 @@ export function GameCatalogWorkspace() {
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (sessionState !== "authenticated") {
+      setShowCreate(false);
+      setMessage("Necesitas iniciar sesión para crear un juego privado.");
+      return;
+    }
+    if (creationMode === "public" && !canPublishDirectly) {
+      setShowCreate(false);
+      setMessage("Tu cuenta no puede publicar juegos directamente.");
+      return;
+    }
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const coverFile = (
@@ -158,7 +241,7 @@ export function GameCatalogWorkspace() {
     setCreatedGameId(null);
     setFieldErrors({});
     try {
-      const response = await createPrivateGame({
+      const input = {
         name: String(form.get("name") ?? ""),
         description: String(form.get("description") ?? "").trim() || null,
         publicationYear: optionalNumber(form, "publicationYear"),
@@ -171,23 +254,38 @@ export function GameCatalogWorkspace() {
         complexity: optionalNumber(form, "complexity"),
         mechanics: tagList(form, "mechanics"),
         categories: tagList(form, "categories"),
-      });
+      };
+      const response =
+        creationMode === "public"
+          ? await createPublicGame({
+              ...input,
+              classification: String(
+                form.get("classification") ?? "OFFICIAL",
+              ) as "OFFICIAL" | "COMMUNITY",
+            })
+          : await createPrivateGame(input);
       setCreatedGameId(response.game.id);
       if (coverFile) {
         try {
           await uploadGameCover(response.game.id, coverFile);
           setMessage(
-            "Tu juego privado y su portada quedaron guardados. Solo tú puedes verlo.",
+            creationMode === "public"
+              ? "El juego y su portada quedaron publicados directamente en el catálogo."
+              : "Tu juego privado y su portada quedaron guardados. Solo tú puedes verlo.",
           );
         } catch (error) {
           setMessage(
             error instanceof ApiRequestError && error.status === 413
-              ? "Tu juego privado quedó creado, pero la portada superó el límite de 8 MB. Puedes añadirla desde el detalle."
-              : "Tu juego privado quedó creado, pero no pudimos guardar la portada. Puedes reintentarlo desde el detalle.",
+              ? `${creationMode === "public" ? "El juego quedó publicado" : "Tu juego privado quedó creado"}, pero la portada superó el límite de 8 MB. Puedes añadirla desde el detalle.`
+              : `${creationMode === "public" ? "El juego quedó publicado" : "Tu juego privado quedó creado"}, pero no pudimos guardar la portada. Puedes reintentarlo desde el detalle.`,
           );
         }
       } else {
-        setMessage("Tu juego privado quedó creado y solo tú puedes verlo.");
+        setMessage(
+          creationMode === "public"
+            ? "El juego quedó publicado directamente y figura como aprobado por ti."
+            : "Tu juego privado quedó creado y solo tú puedes verlo.",
+        );
       }
       setShowCreate(false);
       formElement.reset();
@@ -197,7 +295,11 @@ export function GameCatalogWorkspace() {
       if (error instanceof ApiRequestError && error.status === 401) {
         setMessage("Necesitas iniciar sesión para crear un juego privado.");
       } else if (error instanceof ApiRequestError && error.status === 403) {
-        setMessage("Tu cuenta no tiene permiso para crear juegos privados.");
+        setMessage(
+          creationMode === "public"
+            ? "Tu cuenta no puede publicar juegos directamente."
+            : "Tu cuenta no tiene permiso para crear juegos privados.",
+        );
       } else {
         setFieldErrors(validationFields(error));
         setMessage("No pudimos crear el juego. Revisa los campos.");
@@ -217,19 +319,98 @@ export function GameCatalogWorkspace() {
             Encuentra el título o la edición exacta que tienes en tu estantería.
           </p>
         </div>
-        <button
-          className="primary-action"
-          type="button"
-          onClick={() => setShowCreate((value) => !value)}
-        >
-          {showCreate ? "Cancelar" : "Crear juego privado"}
-        </button>
+        {sessionState === "authenticated" ? (
+          <div className="catalog-create-actions">
+            <button
+              className="secondary-action"
+              type="button"
+              onClick={() => {
+                setCreationMode("private");
+                setShowCreate(
+                  (visible) => !(visible && creationMode === "private"),
+                );
+              }}
+            >
+              {showCreate && creationMode === "private"
+                ? "Cancelar"
+                : "Crear juego privado"}
+            </button>
+            {canPublishDirectly ? (
+              <>
+                <button
+                  className="secondary-action"
+                  type="button"
+                  onClick={() => {
+                    setCreationMode("bulk");
+                    setShowCreate(
+                      (visible) => !(visible && creationMode === "bulk"),
+                    );
+                  }}
+                >
+                  {showCreate && creationMode === "bulk"
+                    ? "Cancelar"
+                    : "Carga por lote"}
+                </button>
+                <button
+                  className="primary-action"
+                  type="button"
+                  onClick={() => {
+                    setCreationMode("public");
+                    setShowCreate(
+                      (visible) => !(visible && creationMode === "public"),
+                    );
+                  }}
+                >
+                  {showCreate && creationMode === "public"
+                    ? "Cancelar"
+                    : "Publicar juego directamente"}
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : sessionState === "anonymous" ? (
+          <Link className="secondary-action link-action" href="/acceso">
+            Inicia sesión para crear
+          </Link>
+        ) : null}
       </header>
 
-      {showCreate ? (
+      {showCreate &&
+      sessionState === "authenticated" &&
+      creationMode === "bulk" ? (
+        <AdminGameBulkImport
+          onCompleted={() => {
+            setViewState("loading");
+            setReload((value) => value + 1);
+          }}
+        />
+      ) : showCreate && sessionState === "authenticated" ? (
         <form className="collection-form stack-form" onSubmit={handleCreate}>
-          <div className="eyebrow">Visible solo para ti</div>
-          <h2>Nuevo juego privado</h2>
+          <div className="eyebrow">
+            {creationMode === "public"
+              ? "Publicación administrativa"
+              : "Visible solo para ti"}
+          </div>
+          <h2>
+            {creationMode === "public"
+              ? "Nuevo juego público"
+              : "Nuevo juego privado"}
+          </h2>
+          {creationMode === "public" ? (
+            <>
+              <p className="form-message admin-publication-note">
+                Se publicará inmediatamente. En Moderación figurará como
+                aprobado por tu cuenta y con resolución administrativa.
+              </p>
+              <label>
+                Clasificación
+                <select name="classification" defaultValue="OFFICIAL">
+                  <option value="OFFICIAL">Oficial</option>
+                  <option value="COMMUNITY">Comunitario</option>
+                </select>
+              </label>
+            </>
+          ) : null}
           <label>
             Nombre
             <input
@@ -315,18 +496,26 @@ export function GameCatalogWorkspace() {
               <input name="maxAge" type="number" min={0} />
             </label>
           </div>
-          <label>
-            Mecánicas
-            <textarea name="mechanics" rows={3} />
-            <small>Una por línea o separadas por comas.</small>
-          </label>
-          <label>
-            Categorías
-            <textarea name="categories" rows={3} />
-            <small>Ej. Cooperativo, Solitario, Animales o Robots.</small>
-          </label>
+          <TagAutocomplete
+            name="mechanics"
+            label="Mecánicas"
+            suggestions={taxonomyOptions.mechanics}
+            placeholder="Ej. Construcción de mazos"
+          />
+          <TagAutocomplete
+            name="categories"
+            label="Categorías"
+            suggestions={taxonomyOptions.categories}
+            placeholder="Ej. Cooperativo o Cartas"
+          />
           <button className="primary-action" type="submit" disabled={pending}>
-            {pending ? "Creando…" : "Crear juego privado"}
+            {pending
+              ? creationMode === "public"
+                ? "Publicando…"
+                : "Creando…"
+              : creationMode === "public"
+                ? "Publicar y aprobar"
+                : "Crear juego privado"}
           </button>
         </form>
       ) : null}
@@ -356,22 +545,20 @@ export function GameCatalogWorkspace() {
             placeholder="Ej. Catan"
           />
         </label>
-        <label>
-          Mecánica
-          <input
-            value={draftMechanic}
-            onChange={(event) => setDraftMechanic(event.target.value)}
-            placeholder="Ej. Dice rolling"
-          />
-        </label>
-        <label>
-          Categoría
-          <input
-            value={draftCategory}
-            onChange={(event) => setDraftCategory(event.target.value)}
-            placeholder="Ej. Cooperativo"
-          />
-        </label>
+        <AutocompleteInput
+          label="Mecánica"
+          value={draftMechanic}
+          onChange={setDraftMechanic}
+          suggestions={taxonomyOptions.mechanics}
+          placeholder="Ej. Dice rolling"
+        />
+        <AutocompleteInput
+          label="Categoría"
+          value={draftCategory}
+          onChange={setDraftCategory}
+          suggestions={taxonomyOptions.categories}
+          placeholder="Ej. Cooperativo"
+        />
         <label>
           Jugadores desde
           <input

@@ -11,6 +11,7 @@ const updateCopy = vi.fn();
 const moveCopy = vi.fn();
 const exitCopy = vi.fn();
 const listGames = vi.fn();
+const listGameTaxonomyOptions = vi.fn();
 const getGame = vi.fn();
 const listCollections = vi.fn();
 
@@ -24,6 +25,8 @@ vi.mock("../src/lib/api/copies", () => ({
 }));
 vi.mock("../src/lib/api/games", () => ({
   listGames: (...arguments_: unknown[]) => listGames(...arguments_),
+  listGameTaxonomyOptions: (...arguments_: unknown[]) =>
+    listGameTaxonomyOptions(...arguments_),
   getGame: (...arguments_: unknown[]) => getGame(...arguments_),
 }));
 vi.mock("../src/lib/api/collections", () => ({
@@ -146,6 +149,10 @@ beforeEach(() => {
     games: [game],
     pagination: { page: 1, pageSize: 100, totalItems: 1, totalPages: 1 },
   });
+  listGameTaxonomyOptions.mockResolvedValue({
+    mechanics: ["Colocación de losetas"],
+    categories: ["Abstracto", "Cartas", "Mazo de cartas"],
+  });
   getGame.mockResolvedValue({ game: { ...game, editions: [edition] } });
   listCollections.mockResolvedValue({
     collections: [collection, destination],
@@ -263,7 +270,11 @@ test("filters inventory games by name, mechanic and overlapping player range", a
       }),
     ),
   );
-  expect(screen.getByText("Colocación de losetas")).toBeInTheDocument();
+  expect(
+    screen.getByText("Colocación de losetas", {
+      selector: ".mechanic-list span",
+    }),
+  ).toBeInTheDocument();
 });
 
 test("registers a copy and only offers editions from the selected game", async () => {

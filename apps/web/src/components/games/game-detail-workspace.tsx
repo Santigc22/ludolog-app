@@ -4,13 +4,23 @@ import Link from "next/link";
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 
-import type { Collection, Copy, GameDetail } from "@ludoteca/contracts";
+import type {
+  Collection,
+  Copy,
+  GameDetail,
+  GameTaxonomyOptionsResponse,
+} from "@ludoteca/contracts";
 
+import { TagAutocomplete } from "../forms/tag-autocomplete";
 import { ManagedImage } from "../media/managed-image";
 import { ApiRequestError } from "../../lib/api/client";
 import { listCollections } from "../../lib/api/collections";
 import { createCopy } from "../../lib/api/copies";
-import { getGame, updatePublicGame } from "../../lib/api/games";
+import {
+  getGame,
+  listGameTaxonomyOptions,
+  updatePublicGame,
+} from "../../lib/api/games";
 import { imageFileError, uploadGameCover } from "../../lib/api/media";
 import { submitGameForModeration } from "../../lib/api/moderation";
 
@@ -24,6 +34,11 @@ type CollectionState =
 type Selection = { gameId: string; editionId: string | null };
 type CopyCondition = Copy["condition"];
 type Message = { kind: "success" | "error"; text: string };
+
+const emptyTaxonomyOptions: GameTaxonomyOptionsResponse = {
+  mechanics: [],
+  categories: [],
+};
 
 const conditions: ReadonlyArray<[CopyCondition, string]> = [
   ["NEW", "Nueva"],
@@ -83,6 +98,8 @@ export function GameDetailWorkspace({ gameId }: { gameId: string }) {
   const [catalogUpdatePending, setCatalogUpdatePending] = useState(false);
   const [catalogUpdateMessage, setCatalogUpdateMessage] =
     useState<Message | null>(null);
+  const [taxonomyOptions, setTaxonomyOptions] =
+    useState<GameTaxonomyOptionsResponse>(emptyTaxonomyOptions);
 
   useEffect(() => {
     let active = true;
@@ -104,6 +121,20 @@ export function GameDetailWorkspace({ gameId }: { gameId: string }) {
       active = false;
     };
   }, [gameId, reload]);
+
+  useEffect(() => {
+    let active = true;
+    void listGameTaxonomyOptions()
+      .then((response) => {
+        if (active) setTaxonomyOptions(response);
+      })
+      .catch(() => {
+        if (active) setTaxonomyOptions(emptyTaxonomyOptions);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function loadWritableCollections() {
     setCollectionState("loading");
@@ -611,30 +642,20 @@ export function GameDetailWorkspace({ gameId }: { gameId: string }) {
                     />
                   </label>
                 </div>
-                <label>
-                  Mecánicas
-                  <textarea
-                    name="mechanics"
-                    rows={4}
-                    defaultValue={game.mechanics.join("\n")}
-                    aria-describedby="mechanics-help"
-                  />
-                </label>
-                <small id="mechanics-help">
-                  Escribe una mecánica por línea o sepáralas con comas.
-                </small>
-                <label>
-                  Categorías
-                  <textarea
-                    name="categories"
-                    rows={4}
-                    defaultValue={game.categories.join("\n")}
-                    aria-describedby="categories-help"
-                  />
-                </label>
-                <small id="categories-help">
-                  Ej. Cooperativo, Solitario, Animales o Robots; una por línea.
-                </small>
+                <TagAutocomplete
+                  name="mechanics"
+                  label="Mecánicas"
+                  suggestions={taxonomyOptions.mechanics}
+                  initialValues={game.mechanics}
+                  placeholder="Ej. Construcción de mazos"
+                />
+                <TagAutocomplete
+                  name="categories"
+                  label="Categorías"
+                  suggestions={taxonomyOptions.categories}
+                  initialValues={game.categories}
+                  placeholder="Ej. Cooperativo o Cartas"
+                />
                 <button
                   className="primary-action"
                   disabled={catalogUpdatePending}

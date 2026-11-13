@@ -1,10 +1,15 @@
 import {
+  BulkCreatePublicGamesRequestSchema,
   CreatePrivateGameRequestSchema,
+  CreatePublicGameRequestSchema,
   GameIdParamsSchema,
   GameListQuerySchema,
+  type GameTaxonomyOptionsResponse,
   UpdatePublicGameRequestSchema,
   type ErrorResponse,
+  type BulkCreatePublicGamesResponse,
   type CreatePrivateGameResponse,
+  type CreatePublicGameResponse,
   type GameDetailResponse,
   type GameIdParams,
   type GameListResponse,
@@ -15,8 +20,11 @@ import type { RequestHandler } from "express";
 import { ApplicationError } from "../../errors/application-error.js";
 import {
   createPrivateGameForUser,
+  createPublicGameForAdmin,
+  createPublicGamesForAdmin,
   getGameForViewer,
   listGamesForViewer,
+  listGameTaxonomyOptionsForViewer,
   updatePublicGameForManager,
 } from "./game.service.js";
 
@@ -56,6 +64,51 @@ export const createGame: RequestHandler<
   response.status(201).json(result);
 };
 
+export const createPublicGame: RequestHandler<
+  Record<string, never>,
+  CreatePublicGameResponse | ErrorResponse
+> = async (request, response) => {
+  const parsed = CreatePublicGameRequestSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    throw new ApplicationError({
+      code: "VALIDATION_ERROR",
+      message: "The request body is invalid.",
+      statusCode: 400,
+      details: { fields: parsed.error.flatten().fieldErrors },
+    });
+  }
+
+  const result = await createPublicGameForAdmin(
+    authenticatedUserId(request),
+    parsed.data,
+  );
+  response.setHeader("Cache-Control", "no-store");
+  response.status(201).json(result);
+};
+
+export const createPublicGames: RequestHandler<
+  Record<string, never>,
+  BulkCreatePublicGamesResponse | ErrorResponse
+> = async (request, response) => {
+  const parsed = BulkCreatePublicGamesRequestSchema.safeParse(request.body);
+  if (!parsed.success) {
+    throw new ApplicationError({
+      code: "VALIDATION_ERROR",
+      message: "The batch request body is invalid.",
+      statusCode: 400,
+      details: { fields: parsed.error.flatten().fieldErrors },
+    });
+  }
+
+  const result = await createPublicGamesForAdmin(
+    authenticatedUserId(request),
+    parsed.data,
+  );
+  response.setHeader("Cache-Control", "no-store");
+  response.status(201).json(result);
+};
+
 export const listGames: RequestHandler<
   Record<string, never>,
   GameListResponse | ErrorResponse
@@ -74,6 +127,18 @@ export const listGames: RequestHandler<
   const result = await listGamesForViewer(
     request.auth?.userId ?? null,
     parsed.data,
+  );
+
+  response.setHeader("Cache-Control", "no-store");
+  response.status(200).json(result);
+};
+
+export const listGameTaxonomyOptions: RequestHandler<
+  Record<string, never>,
+  GameTaxonomyOptionsResponse | ErrorResponse
+> = async (request, response) => {
+  const result = await listGameTaxonomyOptionsForViewer(
+    request.auth?.userId ?? null,
   );
 
   response.setHeader("Cache-Control", "no-store");

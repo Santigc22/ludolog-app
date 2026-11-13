@@ -18,6 +18,7 @@ export const app = express();
 app.disable("x-powered-by");
 app.use(requestId);
 app.use(requestLogger);
+app.use("/api/v1/games/public/batch", express.json({ limit: "2mb" }));
 app.use(express.json());
 app.use("/api/v1", authRouter);
 app.use("/api/v1", collectionRouter);

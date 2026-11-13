@@ -5,6 +5,7 @@ import { createServer, type Server } from "node:http";
 import {
   ErrorResponseSchema,
   GameListResponseSchema,
+  GameTaxonomyOptionsResponseSchema,
   RegisterResponseSchema,
 } from "@ludoteca/contracts";
 import { afterAll, beforeAll, expect, test } from "vitest";
@@ -24,6 +25,8 @@ let sessionCookie: string;
 let insertedGameIds: string[] = [];
 let insertedMechanicId: string;
 let insertedCategoryId: string;
+let privateMechanicId: string;
+let hiddenCategoryId: string;
 let listToken: string;
 
 beforeAll(async () => {
@@ -110,6 +113,26 @@ beforeAll(async () => {
      VALUES ($1, $3), ($2, $3)`,
     [insertedGameIds[0], insertedGameIds[5], insertedCategoryId],
   );
+
+  const privateMechanic = await databasePool.query<{ id: string }>(
+    `INSERT INTO mechanics (name) VALUES ($1) RETURNING id`,
+    [`Private mechanic ${listToken}`],
+  );
+  privateMechanicId = privateMechanic.rows[0]!.id;
+  await databasePool.query(
+    `INSERT INTO game_mechanics (game_id, mechanic_id) VALUES ($1, $2)`,
+    [insertedGameIds[2], privateMechanicId],
+  );
+
+  const hiddenCategory = await databasePool.query<{ id: string }>(
+    `INSERT INTO categories (name) VALUES ($1) RETURNING id`,
+    [`Hidden category ${listToken}`],
+  );
+  hiddenCategoryId = hiddenCategory.rows[0]!.id;
+  await databasePool.query(
+    `INSERT INTO game_categories (game_id, category_id) VALUES ($1, $2)`,
+    [insertedGameIds[3], hiddenCategoryId],
+  );
 });
 
 afterAll(async () => {
@@ -119,8 +142,14 @@ afterAll(async () => {
   await databasePool.query("DELETE FROM mechanics WHERE id = $1", [
     insertedMechanicId,
   ]);
+  await databasePool.query("DELETE FROM mechanics WHERE id = $1", [
+    privateMechanicId,
+  ]);
   await databasePool.query("DELETE FROM categories WHERE id = $1", [
     insertedCategoryId,
+  ]);
+  await databasePool.query("DELETE FROM categories WHERE id = $1", [
+    hiddenCategoryId,
   ]);
   await databasePool.query("DELETE FROM users WHERE id = ANY($1::uuid[])", [
     [ownerId, outsiderId],
@@ -174,6 +203,27 @@ test("authenticated viewers additionally see only their private games", async ()
   expect(body.games.map(({ name }) => name)).not.toContain(
     `Other Private Prototype ${listToken}`,
   );
+});
+
+test("taxonomy options include public and own terms without leaking private games", async () => {
+  const anonymousResponse = await fetch(`${baseUrl}/api/v1/games/taxonomies`, {
+    headers: { origin: apiConfig.webOrigin },
+  });
+  const ownerResponse = await fetch(`${baseUrl}/api/v1/games/taxonomies`, {
+    headers: { origin: apiConfig.webOrigin, cookie: sessionCookie },
+  });
+  const anonymous = GameTaxonomyOptionsResponseSchema.parse(
+    await anonymousResponse.json(),
+  );
+  const owner = GameTaxonomyOptionsResponseSchema.parse(
+    await ownerResponse.json(),
+  );
+
+  expect(anonymousResponse.status).toBe(200);
+  expect(anonymous.mechanics).toContain(`Strategy ${listToken}`);
+  expect(anonymous.mechanics).not.toContain(`Private mechanic ${listToken}`);
+  expect(owner.mechanics).toContain(`Private mechanic ${listToken}`);
+  expect(owner.categories).not.toContain(`Hidden category ${listToken}`);
 });
 
 test("search is case-insensitive and treats wildcard characters literally", async () => {

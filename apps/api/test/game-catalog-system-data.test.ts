@@ -59,5 +59,9 @@ describe("game catalog system data", () => {
     expect(rolePermissionSeeds.ADMIN).toContain("catalog.game.manage");
     expect(rolePermissionSeeds.MODERATOR).not.toContain("catalog.game.manage");
     expect(rolePermissionSeeds.USER).not.toContain("catalog.game.manage");
+    expect(rolePermissionSeeds.ADMIN).toContain("catalog.game.publish_direct");
+    expect(rolePermissionSeeds.CONTENT_MANAGER).not.toContain(
+      "catalog.game.publish_direct",
+    );
   });
 });

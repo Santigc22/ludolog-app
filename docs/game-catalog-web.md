@@ -67,6 +67,12 @@ Los usuarios normales no ven estas acciones. Un `MODERATOR` puede preparar o
 corregir una portada mientras el juego está pendiente, pero no modificar la
 ficha una vez incorporada al catálogo.
 
+Una sesión `ADMIN` también dispone de `Carga por lote`. Puede descargar una
+plantilla CSV, validar hasta 500 juegos en una vista previa y publicarlos como
+aprobados en una sola operación. Las portadas opcionales se seleccionan junto
+al CSV y se relacionan por el nombre indicado en la columna `portada`; las que
+no se encuentren quedan pendientes para añadirlas después desde cada ficha.
+
 ## Contratos y pruebas
 
 El módulo web `src/lib/api/games.ts` valida respuestas y solicitudes mediante
