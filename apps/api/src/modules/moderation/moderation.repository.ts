@@ -1,4 +1,7 @@
 import type {
+  EditionModerationCase,
+  EditionModerationListQuery,
+  EditionModerationListResponse,
   GameModerationCase,
   GameModerationListQuery,
   GameModerationListResponse,
@@ -10,6 +13,36 @@ import type { PoolClient } from "pg";
 import { databasePool } from "../../infrastructure/database/index.js";
 
 type ModerationStatus = GameModerationCase["status"];
+
+type EditionModerationCaseRow = Readonly<{
+  case_id: string;
+  current_status_code: ModerationStatus;
+  submission_note: string | null;
+  resolution_note: string | null;
+  submitted_by_user_id: string;
+  assigned_to_user_id: string | null;
+  case_created_at: Date;
+  case_updated_at: Date;
+  closed_at: Date | null;
+  submitter_username: string;
+  submitter_display_name: string | null;
+  reviewer_username: string | null;
+  reviewer_display_name: string | null;
+  game_id: string;
+  game_name: string;
+  edition_id: string;
+  edition_name: string | null;
+  edition_number: string | null;
+  language_code: string | null;
+  publication_year: number | null;
+  isbn: string | null;
+  sku: string | null;
+  upc: string | null;
+  notes: string | null;
+  edition_moderation_status_code: ModerationStatus;
+  is_owned_by_viewer: boolean;
+  edition_created_at: Date;
+}>;
 
 type ModerationCaseRow = Readonly<{
   case_id: string;
@@ -23,6 +56,8 @@ type ModerationCaseRow = Readonly<{
   closed_at: Date | null;
   submitter_username: string;
   submitter_display_name: string | null;
+  reviewer_username: string | null;
+  reviewer_display_name: string | null;
   game_id: string;
   game_name: string;
   game_description: string | null;
@@ -30,6 +65,8 @@ type ModerationCaseRow = Readonly<{
   game_min_players: number;
   game_max_players: number;
   game_mechanics: string[];
+  game_categories: string[];
+  game_cover_media_id: string | null;
   game_min_duration_minutes: number | null;
   game_max_duration_minutes: number | null;
   game_min_age: number | null;
@@ -61,9 +98,12 @@ const moderationCaseColumns = `
   moderation_cases.closed_at,
   submitters.username AS submitter_username,
   submitter_profiles.display_name AS submitter_display_name,
+  reviewers.username AS reviewer_username,
+  reviewer_profiles.display_name AS reviewer_display_name,
   games.id AS game_id,
   games.name AS game_name,
   games.description AS game_description,
+  games.cover_media_id AS game_cover_media_id,
   games.publication_year AS game_publication_year,
   games.min_players AS game_min_players,
   games.max_players AS game_max_players,
@@ -74,6 +114,13 @@ const moderationCaseColumns = `
     WHERE game_mechanics.game_id = games.id
     ORDER BY lower(mechanics.name), mechanics.id
   ) AS game_mechanics,
+  ARRAY(
+    SELECT categories.name
+    FROM game_categories
+    INNER JOIN categories ON categories.id = game_categories.category_id
+    WHERE game_categories.game_id = games.id
+    ORDER BY lower(categories.name), categories.id
+  ) AS game_categories,
   games.min_duration_minutes AS game_min_duration_minutes,
   games.max_duration_minutes AS game_max_duration_minutes,
   games.min_age AS game_min_age,
@@ -85,6 +132,35 @@ const moderationCaseColumns = `
   COALESCE(games.created_by_user_id = $2, false) AS is_owned_by_viewer,
   games.created_at AS game_created_at,
   games.updated_at AS game_updated_at`;
+
+const editionModerationCaseColumns = `
+  moderation_cases.id AS case_id,
+  moderation_cases.current_status_code,
+  moderation_cases.submission_note,
+  moderation_cases.resolution_note,
+  moderation_cases.submitted_by_user_id,
+  moderation_cases.assigned_to_user_id,
+  moderation_cases.created_at AS case_created_at,
+  moderation_cases.updated_at AS case_updated_at,
+  moderation_cases.closed_at,
+  submitters.username AS submitter_username,
+  submitter_profiles.display_name AS submitter_display_name,
+  reviewers.username AS reviewer_username,
+  reviewer_profiles.display_name AS reviewer_display_name,
+  games.id AS game_id,
+  games.name AS game_name,
+  game_editions.id AS edition_id,
+  game_editions.edition_name,
+  game_editions.edition_number,
+  game_editions.language_code,
+  game_editions.publication_year,
+  game_editions.isbn,
+  game_editions.sku,
+  game_editions.upc,
+  game_editions.notes,
+  game_editions.moderation_status_code AS edition_moderation_status_code,
+  COALESCE(game_editions.created_by_user_id = $2, false) AS is_owned_by_viewer,
+  game_editions.created_at AS edition_created_at`;
 
 function mapModerationCase(row: ModerationCaseRow): GameModerationCase {
   return {
@@ -98,6 +174,14 @@ function mapModerationCase(row: ModerationCaseRow): GameModerationCase {
       displayName: row.submitter_display_name,
     },
     assignedToUserId: row.assigned_to_user_id,
+    resolvedBy:
+      row.assigned_to_user_id === null || row.reviewer_username === null
+        ? null
+        : {
+            id: row.assigned_to_user_id,
+            username: row.reviewer_username,
+            displayName: row.reviewer_display_name,
+          },
     game: {
       id: row.game_id,
       name: row.game_name,
@@ -106,6 +190,8 @@ function mapModerationCase(row: ModerationCaseRow): GameModerationCase {
       minPlayers: row.game_min_players,
       maxPlayers: row.game_max_players,
       mechanics: row.game_mechanics,
+      categories: row.game_categories,
+      coverMediaId: row.game_cover_media_id,
       minDurationMinutes: row.game_min_duration_minutes,
       maxDurationMinutes: row.game_max_duration_minutes,
       minAge: row.game_min_age,
@@ -118,6 +204,49 @@ function mapModerationCase(row: ModerationCaseRow): GameModerationCase {
       isOwnedByViewer: row.is_owned_by_viewer,
       createdAt: row.game_created_at.toISOString(),
       updatedAt: row.game_updated_at.toISOString(),
+    },
+    createdAt: row.case_created_at.toISOString(),
+    updatedAt: row.case_updated_at.toISOString(),
+    closedAt: row.closed_at?.toISOString() ?? null,
+  };
+}
+
+function mapEditionModerationCase(
+  row: EditionModerationCaseRow,
+): EditionModerationCase {
+  return {
+    id: row.case_id,
+    status: row.current_status_code,
+    submissionNote: row.submission_note,
+    resolutionNote: row.resolution_note,
+    submittedBy: {
+      id: row.submitted_by_user_id,
+      username: row.submitter_username,
+      displayName: row.submitter_display_name,
+    },
+    assignedToUserId: row.assigned_to_user_id,
+    resolvedBy:
+      row.assigned_to_user_id === null || row.reviewer_username === null
+        ? null
+        : {
+            id: row.assigned_to_user_id,
+            username: row.reviewer_username,
+            displayName: row.reviewer_display_name,
+          },
+    game: { id: row.game_id, name: row.game_name },
+    edition: {
+      id: row.edition_id,
+      editionName: row.edition_name,
+      editionNumber: row.edition_number,
+      languageCode: row.language_code,
+      publicationYear: row.publication_year,
+      isbn: row.isbn,
+      sku: row.sku,
+      upc: row.upc,
+      notes: row.notes,
+      moderationStatus: row.edition_moderation_status_code,
+      isOwnedByViewer: row.is_owned_by_viewer,
+      createdAt: row.edition_created_at.toISOString(),
     },
     createdAt: row.case_created_at.toISOString(),
     updatedAt: row.case_updated_at.toISOString(),
@@ -138,6 +267,10 @@ async function findCaseWithClient(
        ON submitters.id = moderation_cases.submitted_by_user_id
      INNER JOIN profiles AS submitter_profiles
        ON submitter_profiles.user_id = submitters.id
+     LEFT JOIN users AS reviewers
+       ON reviewers.id = moderation_cases.assigned_to_user_id
+     LEFT JOIN profiles AS reviewer_profiles
+       ON reviewer_profiles.user_id = reviewers.id
      WHERE moderation_cases.id = $1`,
     [caseId, viewerUserId],
   );
@@ -248,7 +381,8 @@ export async function listGameModerationCases(
   query: GameModerationListQuery,
 ): Promise<GameModerationListResponse> {
   const offset = (query.page - 1) * query.pageSize;
-  const [items, count] = await Promise.all([
+  const approvedByUserId = query.approvedByUserId ?? null;
+  const [items, count, reviewers] = await Promise.all([
     databasePool.query<ModerationCaseRow>(
       `SELECT ${moderationCaseColumns}
        FROM moderation_cases
@@ -257,21 +391,139 @@ export async function listGameModerationCases(
          ON submitters.id = moderation_cases.submitted_by_user_id
        INNER JOIN profiles AS submitter_profiles
          ON submitter_profiles.user_id = submitters.id
+       LEFT JOIN users AS reviewers
+         ON reviewers.id = moderation_cases.assigned_to_user_id
+       LEFT JOIN profiles AS reviewer_profiles
+         ON reviewer_profiles.user_id = reviewers.id
        WHERE moderation_cases.current_status_code = $1
+         AND ($3::uuid IS NULL OR moderation_cases.assigned_to_user_id = $3)
        ORDER BY moderation_cases.created_at ASC, moderation_cases.id ASC
-       LIMIT $3 OFFSET $4`,
-      [query.status, reviewerUserId, query.pageSize, offset],
+       LIMIT $4 OFFSET $5`,
+      [query.status, reviewerUserId, approvedByUserId, query.pageSize, offset],
     ),
     databasePool.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count
        FROM moderation_cases
-       WHERE current_status_code = $1`,
-      [query.status],
+       WHERE current_status_code = $1
+         AND game_id IS NOT NULL
+         AND ($2::uuid IS NULL OR assigned_to_user_id = $2)`,
+      [query.status, approvedByUserId],
+    ),
+    databasePool.query<{
+      id: string;
+      username: string;
+      display_name: string | null;
+    }>(
+      `SELECT DISTINCT users.id, users.username, profiles.display_name
+       FROM moderation_cases
+       INNER JOIN users ON users.id = moderation_cases.assigned_to_user_id
+       INNER JOIN profiles ON profiles.user_id = users.id
+       WHERE moderation_cases.current_status_code = 'APPROVED'
+         AND moderation_cases.game_id IS NOT NULL
+       ORDER BY profiles.display_name NULLS LAST, users.username, users.id`,
     ),
   ]);
   const totalItems = Number(count.rows[0]?.count ?? 0);
   return {
     moderationCases: items.rows.map(mapModerationCase),
+    reviewers: reviewers.rows.map((reviewer) => ({
+      id: reviewer.id,
+      username: reviewer.username,
+      displayName: reviewer.display_name,
+    })),
+    pagination: {
+      page: query.page,
+      pageSize: query.pageSize,
+      totalItems,
+      totalPages: Math.ceil(totalItems / query.pageSize),
+    },
+  };
+}
+
+async function findEditionCaseWithClient(
+  client: PoolClient,
+  caseId: string,
+  viewerUserId: string,
+): Promise<EditionModerationCase> {
+  const result = await client.query<EditionModerationCaseRow>(
+    `SELECT ${editionModerationCaseColumns}
+     FROM moderation_cases
+     INNER JOIN game_editions
+       ON game_editions.id = moderation_cases.game_edition_id
+     INNER JOIN games ON games.id = game_editions.game_id
+     INNER JOIN users AS submitters
+       ON submitters.id = moderation_cases.submitted_by_user_id
+     INNER JOIN profiles AS submitter_profiles
+       ON submitter_profiles.user_id = submitters.id
+     LEFT JOIN users AS reviewers
+       ON reviewers.id = moderation_cases.assigned_to_user_id
+     LEFT JOIN profiles AS reviewer_profiles
+       ON reviewer_profiles.user_id = reviewers.id
+     WHERE moderation_cases.id = $1`,
+    [caseId, viewerUserId],
+  );
+  const row = result.rows[0];
+  if (row === undefined) throw new Error("Edition moderation case disappeared");
+  return mapEditionModerationCase(row);
+}
+
+export async function listEditionModerationCases(
+  reviewerUserId: string,
+  query: EditionModerationListQuery,
+): Promise<EditionModerationListResponse> {
+  const offset = (query.page - 1) * query.pageSize;
+  const approvedByUserId = query.approvedByUserId ?? null;
+  const [items, count, reviewers] = await Promise.all([
+    databasePool.query<EditionModerationCaseRow>(
+      `SELECT ${editionModerationCaseColumns}
+       FROM moderation_cases
+       INNER JOIN game_editions
+         ON game_editions.id = moderation_cases.game_edition_id
+       INNER JOIN games ON games.id = game_editions.game_id
+       INNER JOIN users AS submitters
+         ON submitters.id = moderation_cases.submitted_by_user_id
+       INNER JOIN profiles AS submitter_profiles
+         ON submitter_profiles.user_id = submitters.id
+       LEFT JOIN users AS reviewers
+         ON reviewers.id = moderation_cases.assigned_to_user_id
+       LEFT JOIN profiles AS reviewer_profiles
+         ON reviewer_profiles.user_id = reviewers.id
+       WHERE moderation_cases.current_status_code = $1
+         AND ($3::uuid IS NULL OR moderation_cases.assigned_to_user_id = $3)
+       ORDER BY moderation_cases.created_at ASC, moderation_cases.id ASC
+       LIMIT $4 OFFSET $5`,
+      [query.status, reviewerUserId, approvedByUserId, query.pageSize, offset],
+    ),
+    databasePool.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM moderation_cases
+       WHERE current_status_code = $1
+         AND game_edition_id IS NOT NULL
+         AND ($2::uuid IS NULL OR assigned_to_user_id = $2)`,
+      [query.status, approvedByUserId],
+    ),
+    databasePool.query<{
+      id: string;
+      username: string;
+      display_name: string | null;
+    }>(
+      `SELECT DISTINCT users.id, users.username, profiles.display_name
+       FROM moderation_cases
+       INNER JOIN users ON users.id = moderation_cases.assigned_to_user_id
+       INNER JOIN profiles ON profiles.user_id = users.id
+       WHERE moderation_cases.current_status_code = 'APPROVED'
+         AND moderation_cases.game_edition_id IS NOT NULL
+       ORDER BY profiles.display_name NULLS LAST, users.username, users.id`,
+    ),
+  ]);
+  const totalItems = Number(count.rows[0]?.count ?? 0);
+  return {
+    moderationCases: items.rows.map(mapEditionModerationCase),
+    reviewers: reviewers.rows.map((reviewer) => ({
+      id: reviewer.id,
+      username: reviewer.username,
+      displayName: reviewer.display_name,
+    })),
     pagination: {
       page: query.page,
       pageSize: query.pageSize,
@@ -414,6 +666,122 @@ export function rejectGameModerationCase(
   input: NormalizedRejectModerationCaseRequest,
 ): Promise<ResolveModerationResult> {
   return resolveModerationCase(
+    caseId,
+    reviewerUserId,
+    "REJECTED",
+    input.reason,
+  );
+}
+
+export type ResolveEditionModerationResult =
+  | Readonly<{ kind: "not_found" }>
+  | Readonly<{ kind: "already_resolved"; status: ModerationStatus }>
+  | Readonly<{ kind: "success"; moderationCase: EditionModerationCase }>;
+
+async function resolveEditionModerationCase(
+  caseId: string,
+  reviewerUserId: string,
+  decision: "APPROVED" | "REJECTED",
+  resolutionNote: string | null,
+): Promise<ResolveEditionModerationResult> {
+  const client = await databasePool.connect();
+  try {
+    await client.query("BEGIN");
+    const locked = await client.query<{
+      case_id: string;
+      edition_id: string;
+      current_status_code: ModerationStatus;
+    }>(
+      `SELECT moderation_cases.id AS case_id,
+              moderation_cases.game_edition_id AS edition_id,
+              moderation_cases.current_status_code
+       FROM moderation_cases
+       INNER JOIN game_editions
+         ON game_editions.id = moderation_cases.game_edition_id
+       WHERE moderation_cases.id = $1
+       FOR UPDATE OF moderation_cases, game_editions`,
+      [caseId],
+    );
+    const current = locked.rows[0];
+    if (current === undefined) {
+      await client.query("ROLLBACK");
+      return { kind: "not_found" };
+    }
+    if (current.current_status_code !== "PENDING_REVIEW") {
+      await client.query("ROLLBACK");
+      return { kind: "already_resolved", status: current.current_status_code };
+    }
+
+    const time = await client.query<{ resolved_at: Date }>(
+      "SELECT clock_timestamp() AS resolved_at",
+    );
+    const resolvedAt = time.rows[0]!.resolved_at;
+    await client.query(
+      `UPDATE game_editions
+       SET moderation_status_code = $2, updated_at = $3
+       WHERE id = $1`,
+      [current.edition_id, decision, resolvedAt],
+    );
+    await client.query(
+      `UPDATE moderation_cases
+       SET current_status_code = $2, assigned_to_user_id = $3,
+           resolution_note = $4, updated_at = $5, closed_at = $5
+       WHERE id = $1`,
+      [caseId, decision, reviewerUserId, resolutionNote, resolvedAt],
+    );
+    await client.query(
+      `INSERT INTO moderation_actions (
+         moderation_case_id, actor_user_id, from_status_code,
+         to_status_code, reason, created_at
+       ) VALUES ($1, $2, 'PENDING_REVIEW', $3, $4, $5)`,
+      [caseId, reviewerUserId, decision, resolutionNote, resolvedAt],
+    );
+    await client.query(
+      `INSERT INTO audit_logs (
+         actor_user_id, action, resource_type, resource_id,
+         before_state, after_state, context, occurred_at
+       ) VALUES ($1, $2, 'GAME_EDITION', $3, $4::jsonb, $5::jsonb,
+                 $6::jsonb, $7)`,
+      [
+        reviewerUserId,
+        decision === "APPROVED"
+          ? "game_edition.moderation_approved"
+          : "game_edition.moderation_rejected",
+        current.edition_id,
+        JSON.stringify({ moderationStatus: "PENDING_REVIEW" }),
+        JSON.stringify({ moderationStatus: decision }),
+        JSON.stringify({ moderationCaseId: caseId, resolutionNote }),
+        resolvedAt,
+      ],
+    );
+    const moderationCase = await findEditionCaseWithClient(
+      client,
+      caseId,
+      reviewerUserId,
+    );
+    await client.query("COMMIT");
+    return { kind: "success", moderationCase };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export function approveEditionModerationCase(
+  caseId: string,
+  reviewerUserId: string,
+): Promise<ResolveEditionModerationResult> {
+  return resolveEditionModerationCase(caseId, reviewerUserId, "APPROVED", null);
+}
+
+export function rejectEditionModerationCase(
+  caseId: string,
+  reviewerUserId: string,
+  input: NormalizedRejectModerationCaseRequest,
+): Promise<ResolveEditionModerationResult> {
+  return resolveEditionModerationCase(
     caseId,
     reviewerUserId,
     "REJECTED",

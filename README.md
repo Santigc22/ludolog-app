@@ -8,6 +8,7 @@ físicas y movimientos con historial.
 
 ```text
 Navegador → Next.js → Express API → PostgreSQL
+                            └──────→ imágenes locales
 ```
 
 - `apps/api`: Express 5, reglas de negocio y acceso exclusivo a PostgreSQL.
@@ -99,6 +100,8 @@ WEB_ORIGIN=http://localhost:3000
 NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
 DATABASE_URL=postgresql://ludoteca_app:CHANGE_ME_LOCAL@localhost:5433/ludoteca_dev
 TEST_DATABASE_URL=postgresql://ludoteca_app:CHANGE_ME_LOCAL@localhost:5433/ludoteca_test
+MEDIA_STORAGE_PATH=.data/media
+MEDIA_MAX_UPLOAD_BYTES=8388608
 ```
 
 Si la contraseña contiene caracteres reservados de URL, codifícala. `.env`
@@ -202,6 +205,7 @@ migraciones ya aplicadas.
 - [Interfaz de ludotecas](docs/collections-web.md)
 - [Interfaz del catálogo](docs/game-catalog-web.md)
 - [Moderación de juegos](docs/game-moderation-web.md)
+- [Imágenes locales](docs/local-media-storage.md)
 - [Esquema de copias e historial](docs/copy-inventory-schema.md)
 - [API HTTP](docs/api/README.md)
 - [Guía de inicialización detallada](docs/ludoteca_virtual_guia_inicializacion_repo.md)

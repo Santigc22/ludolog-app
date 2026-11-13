@@ -9,6 +9,7 @@ declare global {
         username: string;
         displayName: string | null;
         visibility: "PRIVATE" | "PUBLIC";
+        roles: Array<"USER" | "MODERATOR" | "CONTENT_MANAGER" | "ADMIN">;
         csrfTokenHash: string;
       };
     }

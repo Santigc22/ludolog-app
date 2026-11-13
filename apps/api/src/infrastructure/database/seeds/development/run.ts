@@ -4,6 +4,7 @@ import {
   developmentCollections,
   developmentGameEditions,
   developmentGames,
+  developmentModerationCases,
   developmentUsers,
 } from "./data.js";
 import { seedDevelopmentCatalog } from "./seed.js";
@@ -14,7 +15,7 @@ assertDevelopmentSeedTarget(apiConfig.nodeEnv, apiConfig.databaseUrl);
 try {
   await seedDevelopmentCatalog();
   console.log(
-    `Development seed applied: ${developmentUsers.length} users, ${developmentCollections.length} collections, ${developmentGames.length} games and ${developmentGameEditions.length} edition`,
+    `Development seed applied: ${developmentUsers.length} users, ${developmentCollections.length} collections, ${developmentGames.length} games, ${developmentGameEditions.length} edition and ${developmentModerationCases.length} moderation cases`,
   );
 } finally {
   await closeDatabase();

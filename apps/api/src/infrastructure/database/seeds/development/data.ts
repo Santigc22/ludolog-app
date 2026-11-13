@@ -10,6 +10,7 @@ export const developmentGames = [
     minAge: 10,
     complexity: "2.30",
     mechanics: ["Gestión de recursos", "Construcción de redes", "Negociación"],
+    categories: ["Civilización", "Económico"],
   },
   {
     id: "e3030001-0000-4000-8000-000000000002",
@@ -22,6 +23,7 @@ export const developmentGames = [
     minAge: 8,
     complexity: "1.10",
     mechanics: ["Presiona tu suerte", "Colección de conjuntos"],
+    categories: ["Cartas", "Familiar"],
   },
   {
     id: "e3030001-0000-4000-8000-000000000003",
@@ -34,6 +36,7 @@ export const developmentGames = [
     minAge: 8,
     complexity: "1.80",
     mechanics: ["Colocación de losetas", "Colección de conjuntos"],
+    categories: ["Abstracto", "Familiar"],
   },
   {
     id: "e3030001-0000-4000-8000-000000000004",
@@ -45,7 +48,8 @@ export const developmentGames = [
     maxDurationMinutes: 60,
     minAge: 8,
     complexity: "2.40",
-    mechanics: ["Cooperativo", "Gestión de mano"],
+    mechanics: ["Puntos de acción", "Gestión de mano"],
+    categories: ["Cooperativo", "Medicina"],
   },
 ] as const;
 
@@ -90,6 +94,19 @@ export const developmentUsers = [
     role: "CONTENT_MANAGER",
   },
 ] as const;
+
+export const developmentModerationCases = developmentGames.map(
+  (game, index) => ({
+    id: `e3030012-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    gameId: game.id,
+    submittedByUserId: developmentUsers[3].id,
+    approvedByUserId: developmentUsers[2].id,
+    submissionActionId: `e3030013-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    approvalActionId: `e3030014-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    submittedAt: new Date(`2026-09-01T12:0${index}:00.000Z`),
+    approvedAt: new Date(`2026-09-01T13:0${index}:00.000Z`),
+  }),
+);
 
 export const developmentCollections = [
   {

@@ -36,6 +36,19 @@ export const AcquisitionTypeSchema = z.enum([
 const nullableText = (maximum: number) =>
   z.string().trim().min(1).max(maximum).nullable();
 
+export const ProposedGameEditionSchema = z
+  .object({
+    editionName: z.string().trim().min(1).max(180),
+    editionNumber: nullableText(80).optional(),
+    languageCode: nullableText(12).optional(),
+    publicationYear: z.number().int().min(0).max(32_767).nullable().optional(),
+    isbn: nullableText(32).optional(),
+    sku: nullableText(80).optional(),
+    upc: nullableText(32).optional(),
+    notes: nullableText(2_000).optional(),
+  })
+  .strict();
+
 export const CreateAcquisitionRequestSchema = z
   .object({
     type: AcquisitionTypeSchema,
@@ -71,27 +84,53 @@ export const CreateCopyRequestSchema = z
   .object({
     gameId: z.uuid(),
     gameEditionId: z.uuid().nullable().optional(),
+    proposedEdition: ProposedGameEditionSchema.optional(),
     condition: CopyConditionSchema.optional().default("GOOD"),
     alias: nullableText(140).optional(),
     notes: nullableText(2_000).optional(),
     acquisition: CreateAcquisitionRequestSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.gameEditionId != null && value.proposedEdition !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "Choose an existing edition or propose a new one, not both.",
+        path: ["proposedEdition"],
+      });
+    }
+  });
 
 export const UpdateCopyRequestSchema = z
   .object({
+    gameEditionId: z.uuid().nullable().optional(),
+    proposedEdition: ProposedGameEditionSchema.optional(),
     condition: CopyConditionSchema.optional(),
     alias: nullableText(140).optional(),
     notes: nullableText(2_000).optional(),
   })
   .strict()
-  .refine(
-    (value) =>
-      value.condition !== undefined ||
-      value.alias !== undefined ||
-      value.notes !== undefined,
-    { message: "At least one editable field is required." },
-  );
+  .superRefine((value, context) => {
+    if (value.gameEditionId != null && value.proposedEdition !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "Choose an existing edition or propose a new one, not both.",
+        path: ["proposedEdition"],
+      });
+    }
+    if (
+      value.gameEditionId === undefined &&
+      value.proposedEdition === undefined &&
+      value.condition === undefined &&
+      value.alias === undefined &&
+      value.notes === undefined
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "At least one editable field is required.",
+      });
+    }
+  });
 
 export const MoveCopyRequestSchema = z
   .object({ destinationCollectionId: z.uuid() })
@@ -131,9 +170,18 @@ export const AcquisitionSchema = z.object({
   createdAt: z.iso.datetime(),
 });
 
+export const EditionProposalResponseSchema = z
+  .object({
+    editionId: z.uuid(),
+    moderationCaseId: z.uuid(),
+    status: z.literal("PENDING_REVIEW"),
+  })
+  .nullable();
+
 export const CreateCopyResponseSchema = z.object({
   copy: CopySchema,
   acquisition: AcquisitionSchema.nullable(),
+  editionProposal: EditionProposalResponseSchema,
 });
 
 export const CopyListLifecycleFilterSchema = z.enum([
@@ -145,6 +193,7 @@ export const CopyListQuerySchema = PaginationQuerySchema.extend({
   lifecycle: CopyListLifecycleFilterSchema.optional().default("ACTIVE"),
   q: z.string().trim().min(1).max(100).optional(),
   mechanic: z.string().trim().min(1).max(100).optional(),
+  category: z.string().trim().min(1).max(100).optional(),
   minPlayers: z.coerce.number().int().min(1).max(32_767).optional(),
   maxPlayers: z.coerce.number().int().min(1).max(32_767).optional(),
 })
@@ -167,9 +216,11 @@ export const CopyListQuerySchema = PaginationQuerySchema.extend({
 export const CopyGameReferenceSchema = z.object({
   id: z.uuid(),
   name: z.string().min(1),
+  coverMediaId: z.uuid().nullable(),
   minPlayers: z.number().int().min(1),
   maxPlayers: z.number().int().min(1),
   mechanics: z.array(z.string().min(1).max(120)),
+  categories: z.array(z.string().min(1).max(120)),
 });
 export const CopyEditionReferenceSchema = z.object({
   id: z.uuid(),
@@ -177,6 +228,7 @@ export const CopyEditionReferenceSchema = z.object({
   editionNumber: z.string().nullable(),
   languageCode: z.string().nullable(),
   publicationYear: z.number().int().nullable(),
+  moderationStatus: z.enum(["PENDING_REVIEW", "APPROVED", "REJECTED"]),
 });
 export const CopyListItemSchema = CopySchema.extend({
   game: CopyGameReferenceSchema,
@@ -200,10 +252,15 @@ export const CopyDetailSchema = CopyListItemSchema.extend({
   acquisitions: z.array(AcquisitionSchema),
 });
 export const CopyDetailResponseSchema = z.object({ copy: CopyDetailSchema });
+export const UpdateCopyResponseSchema = z.object({
+  copy: CopyDetailSchema,
+  editionProposal: EditionProposalResponseSchema,
+});
 
 export type Copy = z.infer<typeof CopySchema>;
 export type Acquisition = z.infer<typeof AcquisitionSchema>;
 export type CreateCopyRequest = z.input<typeof CreateCopyRequestSchema>;
+export type ProposedGameEdition = z.output<typeof ProposedGameEditionSchema>;
 export type NormalizedCreateCopyRequest = z.output<
   typeof CreateCopyRequestSchema
 >;
@@ -217,6 +274,7 @@ export type CopyListResponse = z.infer<typeof CopyListResponseSchema>;
 export type CopyIdParams = z.infer<typeof CopyIdParamsSchema>;
 export type CopyDetail = z.infer<typeof CopyDetailSchema>;
 export type CopyDetailResponse = z.infer<typeof CopyDetailResponseSchema>;
+export type UpdateCopyResponse = z.infer<typeof UpdateCopyResponseSchema>;
 export type UpdateCopyRequest = z.input<typeof UpdateCopyRequestSchema>;
 export type NormalizedUpdateCopyRequest = z.output<
   typeof UpdateCopyRequestSchema

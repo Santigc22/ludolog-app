@@ -2,11 +2,13 @@ import {
   CreatePrivateGameRequestSchema,
   GameIdParamsSchema,
   GameListQuerySchema,
+  UpdatePublicGameRequestSchema,
   type ErrorResponse,
   type CreatePrivateGameResponse,
   type GameDetailResponse,
   type GameIdParams,
   type GameListResponse,
+  type UpdatePublicGameResponse,
 } from "@ludoteca/contracts";
 import type { RequestHandler } from "express";
 
@@ -15,6 +17,7 @@ import {
   createPrivateGameForUser,
   getGameForViewer,
   listGamesForViewer,
+  updatePublicGameForManager,
 } from "./game.service.js";
 
 function authenticatedUserId(request: Express.Request): string {
@@ -97,6 +100,34 @@ export const getGame: RequestHandler<
     request.auth?.userId ?? null,
   );
 
+  response.setHeader("Cache-Control", "no-store");
+  response.status(200).json(result);
+};
+
+export const updateGame: RequestHandler<
+  GameIdParams,
+  UpdatePublicGameResponse | ErrorResponse
+> = async (request, response) => {
+  const params = GameIdParamsSchema.safeParse(request.params);
+  const body = UpdatePublicGameRequestSchema.safeParse(request.body);
+
+  if (!params.success || !body.success) {
+    throw new ApplicationError({
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      statusCode: 400,
+      details: {
+        params: params.success ? undefined : params.error.flatten().fieldErrors,
+        fields: body.success ? undefined : body.error.flatten().fieldErrors,
+      },
+    });
+  }
+
+  const result = await updatePublicGameForManager(
+    params.data.gameId,
+    authenticatedUserId(request),
+    body.data,
+  );
   response.setHeader("Cache-Control", "no-store");
   response.status(200).json(result);
 };

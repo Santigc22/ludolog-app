@@ -10,6 +10,7 @@ import {
   CopyListQuerySchema,
   CreateCollectionRequestSchema,
   CreateCollectionResponseSchema,
+  CurrentSessionResponseSchema,
   ErrorResponseSchema,
   ExitCopyRequestSchema,
   GameListQuerySchema,
@@ -29,6 +30,7 @@ import {
   UpdateCollectionRequestSchema,
   UpdateCopyRequestSchema,
   UpdateOwnProfileRequestSchema,
+  UpdatePublicGameRequestSchema,
 } from "../src/index.js";
 
 test("normalizes moderation submissions and requires a useful rejection reason", () => {
@@ -56,6 +58,31 @@ test("normalizes moderation submissions and requires a useful rejection reason",
   expect(
     GameModerationListQuerySchema.safeParse({ status: "DRAFT" }).success,
   ).toBe(false);
+  expect(
+    GameModerationListQuerySchema.parse({
+      status: "APPROVED",
+      approvedByUserId: "f393aa06-8b03-44c8-b75a-8e15f59aa7b6",
+    }).approvedByUserId,
+  ).toBe("f393aa06-8b03-44c8-b75a-8e15f59aa7b6");
+});
+
+test("normalizes public game administration fields", () => {
+  expect(
+    UpdatePublicGameRequestSchema.parse({
+      name: "  Azul  ",
+      mechanics: [" Losetas ", "losetas", "Colección de conjuntos"],
+      categories: [" Abstracto ", "abstracto", "Familiar"],
+    }),
+  ).toEqual({
+    name: "Azul",
+    mechanics: ["Losetas", "Colección de conjuntos"],
+    categories: ["Abstracto", "Familiar"],
+  });
+  expect(UpdatePublicGameRequestSchema.safeParse({}).success).toBe(false);
+  expect(
+    UpdatePublicGameRequestSchema.safeParse({ minPlayers: 5, maxPlayers: 2 })
+      .success,
+  ).toBe(false);
 });
 
 test("normalizes copy creation and keeps lifecycle fields server-owned", () => {
@@ -78,6 +105,27 @@ test("normalizes copy creation and keeps lifecycle fields server-owned", () => {
     CreateCopyRequestSchema.safeParse({
       gameId: "4e145b05-1f8c-4b3f-a535-3c474bb55e95",
       lifecycle: "EXITED",
+    }).success,
+  ).toBe(false);
+  expect(
+    CreateCopyRequestSchema.parse({
+      gameId: "4e145b05-1f8c-4b3f-a535-3c474bb55e95",
+      proposedEdition: {
+        editionName: "  Deluxe  ",
+        languageCode: " es ",
+        publicationYear: 2024,
+      },
+    }).proposedEdition,
+  ).toEqual({
+    editionName: "Deluxe",
+    languageCode: "es",
+    publicationYear: 2024,
+  });
+  expect(
+    CreateCopyRequestSchema.safeParse({
+      gameId: "4e145b05-1f8c-4b3f-a535-3c474bb55e95",
+      gameEditionId: "3297a863-b2f0-4746-bfec-e76517342f86",
+      proposedEdition: { editionName: "Deluxe" },
     }).success,
   ).toBe(false);
   expect(
@@ -118,7 +166,7 @@ test("defaults copy listing to active and bounds explicit history filters", () =
   ).toBe(false);
 });
 
-test("accepts only ordinary editable copy metadata", () => {
+test("accepts editable copy metadata and edition changes", () => {
   expect(
     UpdateCopyRequestSchema.parse({
       alias: "  Table copy  ",
@@ -126,6 +174,22 @@ test("accepts only ordinary editable copy metadata", () => {
       condition: "DAMAGED",
     }),
   ).toEqual({ alias: "Table copy", notes: null, condition: "DAMAGED" });
+  expect(UpdateCopyRequestSchema.parse({ gameEditionId: null })).toEqual({
+    gameEditionId: null,
+  });
+  expect(
+    UpdateCopyRequestSchema.parse({
+      proposedEdition: { editionName: "  Deluxe  ", languageCode: " es " },
+    }),
+  ).toEqual({
+    proposedEdition: { editionName: "Deluxe", languageCode: "es" },
+  });
+  expect(
+    UpdateCopyRequestSchema.safeParse({
+      gameEditionId: "3297a863-b2f0-4746-bfec-e76517342f86",
+      proposedEdition: { editionName: "Deluxe" },
+    }).success,
+  ).toBe(false);
   expect(UpdateCopyRequestSchema.safeParse({}).success).toBe(false);
   expect(
     UpdateCopyRequestSchema.safeParse({ lifecycle: "EXITED" }).success,
@@ -272,6 +336,8 @@ test("normalizes game list queries and validates visible summaries", () => {
           minPlayers: 3,
           maxPlayers: 4,
           mechanics: ["Trading"],
+          categories: ["Económico"],
+          coverMediaId: null,
           minDurationMinutes: 60,
           maxDurationMinutes: 120,
           minAge: 10,
@@ -314,6 +380,8 @@ test("validates game detail parameters and editions", () => {
         minPlayers: 3,
         maxPlayers: 4,
         mechanics: ["Trading"],
+        categories: ["Económico"],
+        coverMediaId: null,
         minDurationMinutes: 60,
         maxDurationMinutes: 120,
         minAge: 10,
@@ -323,6 +391,7 @@ test("validates game detail parameters and editions", () => {
         visibility: "PUBLIC",
         moderationStatus: "APPROVED",
         isOwnedByViewer: false,
+        canManageCatalog: false,
         createdAt: "2026-09-21T20:00:00.000Z",
         updatedAt: "2026-09-21T20:00:00.000Z",
         editions: [
@@ -336,6 +405,8 @@ test("validates game detail parameters and editions", () => {
             sku: null,
             upc: null,
             notes: null,
+            moderationStatus: "APPROVED",
+            isOwnedByViewer: false,
             createdAt: "2026-09-21T20:00:00.000Z",
           },
         ],
@@ -550,6 +621,21 @@ test("accepts the public registration response without credentials", () => {
         profile: { displayName: "Player One", visibility: "PRIVATE" },
       },
       csrfToken: "a-secure-csrf-token-with-enough-entropy",
+    }).success,
+  ).toBe(true);
+});
+
+test("accepts session roles used for role-aware navigation", () => {
+  expect(
+    CurrentSessionResponseSchema.safeParse({
+      user: {
+        id: "4e145b05-1f8c-4b3f-a535-3c474bb55e95",
+        email: "moderator@example.com",
+        username: "moderator",
+        status: "ACTIVE",
+        roles: ["MODERATOR"],
+        profile: { displayName: "Moderator", visibility: "PRIVATE" },
+      },
     }).success,
   ).toBe(true);
 });

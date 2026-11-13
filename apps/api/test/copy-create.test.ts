@@ -240,6 +240,60 @@ test("creates without acquisition and applies the default condition", async () =
   expect(body.copy.condition).toBe("GOOD");
   expect(body.copy.gameEditionId).toBeNull();
   expect(body.acquisition).toBeNull();
+  expect(body.editionProposal).toBeNull();
+});
+
+test("creates a copy and submits its new edition for moderation atomically", async () => {
+  const response = await requestCopy(
+    collectionId,
+    {
+      gameId,
+      alias: "Deluxe copy",
+      proposedEdition: {
+        editionName: "Deluxe",
+        editionNumber: "Kickstarter",
+        languageCode: "es",
+        publicationYear: 2024,
+        notes: "Includes upgraded components",
+      },
+    },
+    { cookie: ownerCookie, csrf: ownerCsrf },
+  );
+  const body = CreateCopyResponseSchema.parse(await response.json());
+
+  expect(response.status).toBe(201);
+  expect(body.copy.gameEditionId).toBe(body.editionProposal?.editionId);
+  expect(body.editionProposal).toMatchObject({
+    status: "PENDING_REVIEW",
+  });
+
+  const persisted = await databasePool.query<{
+    edition_name: string;
+    moderation_status_code: string;
+    created_by_user_id: string;
+    case_status: string;
+    action_count: string;
+  }>(
+    `SELECT game_editions.edition_name,
+            game_editions.moderation_status_code,
+            game_editions.created_by_user_id,
+            moderation_cases.current_status_code AS case_status,
+            (SELECT COUNT(*)::text
+             FROM moderation_actions
+             WHERE moderation_case_id = moderation_cases.id) AS action_count
+     FROM game_editions
+     INNER JOIN moderation_cases
+       ON moderation_cases.game_edition_id = game_editions.id
+     WHERE game_editions.id = $1`,
+    [body.copy.gameEditionId],
+  );
+  expect(persisted.rows[0]).toEqual({
+    edition_name: "Deluxe",
+    moderation_status_code: "PENDING_REVIEW",
+    created_by_user_id: ownerId,
+    case_status: "PENDING_REVIEW",
+    action_count: "1",
+  });
 });
 
 test("rejects an edition from another game and invisible games", async () => {

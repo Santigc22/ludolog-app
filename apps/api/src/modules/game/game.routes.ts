@@ -7,7 +7,12 @@ import {
 } from "../../middleware/authentication.js";
 import { requirePermission } from "../../middleware/authorization.js";
 import { requireWebOrigin } from "../../middleware/require-web-origin.js";
-import { createGame, getGame, listGames } from "./game.controller.js";
+import {
+  createGame,
+  getGame,
+  listGames,
+  updateGame,
+} from "./game.controller.js";
 
 export const gameRouter = Router();
 
@@ -32,8 +37,21 @@ gameRouter.post(
 );
 
 gameRouter.options("/games/:gameId", requireWebOrigin, (_request, response) => {
-  response.setHeader("Access-Control-Allow-Methods", "GET");
+  response.setHeader("Access-Control-Allow-Methods", "GET, PATCH");
+  response.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, X-CSRF-Token",
+  );
   response.sendStatus(204);
 });
 
 gameRouter.get("/games/:gameId", requireWebOrigin, optionalAuth, getGame);
+
+gameRouter.patch(
+  "/games/:gameId",
+  requireWebOrigin,
+  requireAuth,
+  requirePermission("catalog.game.manage"),
+  requireCsrf,
+  updateGame,
+);

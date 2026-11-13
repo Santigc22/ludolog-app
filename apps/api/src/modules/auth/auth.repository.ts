@@ -1,4 +1,7 @@
-import type { NormalizedRegisterRequest } from "@ludoteca/contracts";
+import type {
+  GlobalRole,
+  NormalizedRegisterRequest,
+} from "@ludoteca/contracts";
 
 import { databasePool } from "../../infrastructure/database/index.js";
 
@@ -21,6 +24,7 @@ export type LoginIdentity = RegisteredUser &
     passwordHash: string;
     status: string;
     visibility: "PRIVATE" | "PUBLIC";
+    roles: GlobalRole[];
   }>;
 
 export type PersistedSession = RegisteredUser &
@@ -29,6 +33,7 @@ export type PersistedSession = RegisteredUser &
     csrfTokenHash: string;
     status: string;
     visibility: "PRIVATE" | "PUBLIC";
+    roles: GlobalRole[];
     idleExpiresAt: Date;
     absoluteExpiresAt: Date;
     revokedAt: Date | null;
@@ -107,9 +112,16 @@ export async function findLoginIdentity(
     status_code: string;
     display_name: string | null;
     visibility_code: "PRIVATE" | "PUBLIC";
+    roles: GlobalRole[];
   }>(
     `SELECT users.id, users.email, users.username, users.password_hash,
-            users.status_code, profiles.display_name, profiles.visibility_code
+            users.status_code, profiles.display_name, profiles.visibility_code,
+            ARRAY(
+              SELECT user_roles.role_code
+              FROM user_roles
+              WHERE user_roles.user_id = users.id
+              ORDER BY user_roles.role_code
+            ) AS roles
      FROM users
      INNER JOIN profiles ON profiles.user_id = users.id
      WHERE lower(users.email) = $1`,
@@ -127,6 +139,7 @@ export async function findLoginIdentity(
         status: row.status_code,
         displayName: row.display_name,
         visibility: row.visibility_code,
+        roles: row.roles,
       };
 }
 
@@ -164,11 +177,18 @@ export async function findSession(
     status_code: string;
     display_name: string | null;
     visibility_code: "PRIVATE" | "PUBLIC";
+    roles: GlobalRole[];
   }>(
     `SELECT sessions.id AS session_id, sessions.csrf_token_hash,
             sessions.idle_expires_at, sessions.absolute_expires_at,
             sessions.revoked_at, users.id, users.email, users.username,
-            users.status_code, profiles.display_name, profiles.visibility_code
+            users.status_code, profiles.display_name, profiles.visibility_code,
+            ARRAY(
+              SELECT user_roles.role_code
+              FROM user_roles
+              WHERE user_roles.user_id = users.id
+              ORDER BY user_roles.role_code
+            ) AS roles
      FROM sessions
      INNER JOIN users ON users.id = sessions.user_id
      INNER JOIN profiles ON profiles.user_id = users.id
@@ -191,6 +211,7 @@ export async function findSession(
         status: row.status_code,
         displayName: row.display_name,
         visibility: row.visibility_code,
+        roles: row.roles,
       };
 }
 

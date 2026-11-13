@@ -6,8 +6,10 @@ import { useEffect, useState } from "react";
 
 import type { GameListQuery, GameSummary } from "@ludoteca/contracts";
 
+import { ManagedImage } from "../media/managed-image";
 import { ApiRequestError } from "../../lib/api/client";
 import { createPrivateGame, listGames } from "../../lib/api/games";
+import { imageFileError, uploadGameCover } from "../../lib/api/media";
 
 type ViewState = "loading" | "ready" | "error";
 type FieldErrors = Readonly<Record<string, string>>;
@@ -31,6 +33,13 @@ function optionalNumber(form: FormData, name: string) {
   return value === "" ? null : Number(value);
 }
 
+function tagList(form: FormData, name: string) {
+  return String(form.get(name) ?? "")
+    .split(/[\n,]/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 function playerLabel(game: GameSummary) {
   return game.minPlayers === game.maxPlayers
     ? `${game.minPlayers} jugadores`
@@ -44,6 +53,8 @@ export function GameCatalogWorkspace() {
   const [draftQuery, setDraftQuery] = useState("");
   const [mechanic, setMechanic] = useState("");
   const [draftMechanic, setDraftMechanic] = useState("");
+  const [category, setCategory] = useState("");
+  const [draftCategory, setDraftCategory] = useState("");
   const [minPlayers, setMinPlayers] = useState<number | undefined>();
   const [maxPlayers, setMaxPlayers] = useState<number | undefined>();
   const [draftMinPlayers, setDraftMinPlayers] = useState("");
@@ -65,6 +76,7 @@ export function GameCatalogWorkspace() {
     void listGames({
       q: query || undefined,
       mechanic: mechanic || undefined,
+      category: category || undefined,
       minPlayers,
       maxPlayers,
       page,
@@ -82,7 +94,7 @@ export function GameCatalogWorkspace() {
     return () => {
       active = false;
     };
-  }, [mechanic, maxPlayers, minPlayers, page, query, reload, sort]);
+  }, [category, mechanic, maxPlayers, minPlayers, page, query, reload, sort]);
 
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -99,6 +111,7 @@ export function GameCatalogWorkspace() {
     setPage(1);
     setQuery(draftQuery.trim());
     setMechanic(draftMechanic.trim());
+    setCategory(draftCategory.trim());
     setMinPlayers(nextMin);
     setMaxPlayers(nextMax);
     setReload((value) => value + 1);
@@ -107,10 +120,12 @@ export function GameCatalogWorkspace() {
   function clearFilters() {
     setDraftQuery("");
     setDraftMechanic("");
+    setDraftCategory("");
     setDraftMinPlayers("");
     setDraftMaxPlayers("");
     setQuery("");
     setMechanic("");
+    setCategory("");
     setMinPlayers(undefined);
     setMaxPlayers(undefined);
     setFilterError(null);
@@ -123,6 +138,21 @@ export function GameCatalogWorkspace() {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    const coverFile = (
+      formElement.elements.namedItem("cover") as HTMLInputElement | null
+    )?.files?.[0];
+    if (coverFile) {
+      const coverError =
+        coverFile.size === 0
+          ? "La imagen seleccionada está vacía."
+          : imageFileError(coverFile);
+      if (coverError) {
+        setFieldErrors({ cover: coverError });
+        setMessage("Revisa la portada antes de crear el juego.");
+        setCreatedGameId(null);
+        return;
+      }
+    }
     setPending(true);
     setMessage(null);
     setCreatedGameId(null);
@@ -139,9 +169,26 @@ export function GameCatalogWorkspace() {
         minAge: optionalNumber(form, "minAge"),
         maxAge: optionalNumber(form, "maxAge"),
         complexity: optionalNumber(form, "complexity"),
+        mechanics: tagList(form, "mechanics"),
+        categories: tagList(form, "categories"),
       });
       setCreatedGameId(response.game.id);
-      setMessage("Tu juego privado quedó creado y solo tú puedes verlo.");
+      if (coverFile) {
+        try {
+          await uploadGameCover(response.game.id, coverFile);
+          setMessage(
+            "Tu juego privado y su portada quedaron guardados. Solo tú puedes verlo.",
+          );
+        } catch (error) {
+          setMessage(
+            error instanceof ApiRequestError && error.status === 413
+              ? "Tu juego privado quedó creado, pero la portada superó el límite de 8 MB. Puedes añadirla desde el detalle."
+              : "Tu juego privado quedó creado, pero no pudimos guardar la portada. Puedes reintentarlo desde el detalle.",
+          );
+        }
+      } else {
+        setMessage("Tu juego privado quedó creado y solo tú puedes verlo.");
+      }
       setShowCreate(false);
       formElement.reset();
       setViewState("loading");
@@ -199,6 +246,19 @@ export function GameCatalogWorkspace() {
             Descripción
             <textarea name="description" maxLength={2000} rows={3} />
           </label>
+          <label>
+            Portada (opcional)
+            <input
+              name="cover"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              aria-invalid={fieldErrors.cover ? true : undefined}
+            />
+            <small>Imagen JPG, PNG o WebP de máximo 8 MB.</small>
+            {fieldErrors.cover ? (
+              <span className="field-error">{fieldErrors.cover}</span>
+            ) : null}
+          </label>
           <div className="field-grid">
             <label>
               Jugadores mínimos
@@ -255,6 +315,16 @@ export function GameCatalogWorkspace() {
               <input name="maxAge" type="number" min={0} />
             </label>
           </div>
+          <label>
+            Mecánicas
+            <textarea name="mechanics" rows={3} />
+            <small>Una por línea o separadas por comas.</small>
+          </label>
+          <label>
+            Categorías
+            <textarea name="categories" rows={3} />
+            <small>Ej. Cooperativo, Solitario, Animales o Robots.</small>
+          </label>
           <button className="primary-action" type="submit" disabled={pending}>
             {pending ? "Creando…" : "Crear juego privado"}
           </button>
@@ -291,6 +361,14 @@ export function GameCatalogWorkspace() {
           <input
             value={draftMechanic}
             onChange={(event) => setDraftMechanic(event.target.value)}
+            placeholder="Ej. Dice rolling"
+          />
+        </label>
+        <label>
+          Categoría
+          <input
+            value={draftCategory}
+            onChange={(event) => setDraftCategory(event.target.value)}
             placeholder="Ej. Cooperativo"
           />
         </label>
@@ -314,6 +392,10 @@ export function GameCatalogWorkspace() {
             placeholder="Máximo"
           />
         </label>
+        <p className="player-filter-help">
+          Con un solo valor buscamos juegos que admitan exactamente esa
+          cantidad. Con ambos, el rango registrado debe coincidir completo.
+        </p>
         <label>
           Orden
           <select
@@ -384,6 +466,7 @@ export function GameCatalogWorkspace() {
           <h2>
             {query ||
             mechanic ||
+            category ||
             minPlayers !== undefined ||
             maxPlayers !== undefined
               ? "No encontramos coincidencias"
@@ -392,6 +475,7 @@ export function GameCatalogWorkspace() {
           <p className="lead">
             {query ||
             mechanic ||
+            category ||
             minPlayers !== undefined ||
             maxPlayers !== undefined
               ? "Prueba ampliando el rango o quitando alguno de los filtros."
@@ -407,9 +491,22 @@ export function GameCatalogWorkspace() {
               href={`/catalogo/${game.id}`}
               key={game.id}
             >
+              <div className="game-card-cover">
+                {game.coverMediaId ? (
+                  <ManagedImage
+                    mediaId={game.coverMediaId}
+                    variant="thumbnail"
+                    alt={`Portada de ${game.name}`}
+                    width={320}
+                    height={400}
+                  />
+                ) : (
+                  <span aria-hidden="true">Sin portada</span>
+                )}
+              </div>
               <div className="collection-card-top">
                 <span
-                  className={`visibility-chip ${game.isOwnedByViewer ? "visibility-private" : "visibility-public"}`}
+                  className={`visibility-chip ${game.visibility === "PRIVATE" ? "visibility-private" : "visibility-public"}`}
                 >
                   {game.visibility === "PRIVATE"
                     ? "Privado · Tuyo"
@@ -422,10 +519,23 @@ export function GameCatalogWorkspace() {
               <h2>{game.name}</h2>
               <p>{game.description ?? "Sin descripción disponible."}</p>
               {game.mechanics.length > 0 ? (
-                <div className="mechanic-list" aria-label="Mecánicas">
-                  {game.mechanics.map((item) => (
-                    <span key={item}>{item}</span>
-                  ))}
+                <div className="taxonomy-group">
+                  <small>Mecánicas</small>
+                  <div className="mechanic-list">
+                    {game.mechanics.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {game.categories.length > 0 ? (
+                <div className="taxonomy-group">
+                  <small>Categorías</small>
+                  <div className="mechanic-list">
+                    {game.categories.map((item) => (
+                      <span key={item}>{item}</span>
+                    ))}
+                  </div>
                 </div>
               ) : null}
               <footer>

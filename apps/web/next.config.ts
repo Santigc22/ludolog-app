@@ -10,10 +10,21 @@ const rootEnvironmentPath = fileURLToPath(
 
 loadEnvironment({ path: rootEnvironmentPath, quiet: true });
 
-parsePublicEnvironment(process.env);
+const publicEnvironment = parsePublicEnvironment(process.env);
+const apiUrl = new URL(publicEnvironment.NEXT_PUBLIC_API_URL);
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  images: {
+    remotePatterns: [
+      {
+        protocol: apiUrl.protocol.replace(":", "") as "http" | "https",
+        hostname: apiUrl.hostname,
+        port: apiUrl.port,
+        pathname: `${apiUrl.pathname.replace(/\/$/, "")}/media/**`,
+      },
+    ],
+  },
 };
 
 export default nextConfig;

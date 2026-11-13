@@ -6,8 +6,10 @@ import Link from "next/link";
 
 import type { OwnProfile } from "@ludoteca/contracts";
 
+import { ManagedImage } from "../media/managed-image";
 import { getCurrentSession, logout } from "../../lib/api/auth";
 import { ApiRequestError } from "../../lib/api/client";
+import { imageFileError, uploadOwnAvatar } from "../../lib/api/media";
 import { getOwnProfile, updateOwnProfile } from "../../lib/api/profile";
 
 type ViewState = "loading" | "ready" | "unauthenticated" | "error";
@@ -22,6 +24,8 @@ export function ProfileWorkspace() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [avatarPending, setAvatarPending] = useState(false);
+  const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -61,7 +65,6 @@ export function ProfileWorkspace() {
       const response = await updateOwnProfile({
         displayName: String(form.get("displayName") ?? "").trim() || null,
         bio: String(form.get("bio") ?? "").trim() || null,
-        avatarUrl: String(form.get("avatarUrl") ?? "").trim() || null,
         locationText: String(form.get("locationText") ?? "").trim() || null,
         visibility: form.get("visibility") === "PUBLIC" ? "PUBLIC" : "PRIVATE",
       });
@@ -78,6 +81,38 @@ export function ProfileWorkspace() {
       }
     } finally {
       setPending(false);
+    }
+  }
+
+  async function handleAvatarUpload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const file = (form.elements.namedItem("avatar") as HTMLInputElement | null)
+      ?.files?.[0];
+    if (!file || file.size === 0) {
+      setAvatarMessage("Selecciona una imagen.");
+      return;
+    }
+    const validationError = imageFileError(file);
+    if (validationError) {
+      setAvatarMessage(validationError);
+      return;
+    }
+    setAvatarPending(true);
+    setAvatarMessage(null);
+    try {
+      const response = await uploadOwnAvatar(file);
+      setProfile(response.profile);
+      form.reset();
+      setAvatarMessage("Tu avatar quedó actualizado.");
+    } catch (error) {
+      if (isSessionError(error)) {
+        setViewState("unauthenticated");
+      } else {
+        setAvatarMessage("No pudimos guardar el avatar.");
+      }
+    } finally {
+      setAvatarPending(false);
     }
   }
 
@@ -145,9 +180,22 @@ export function ProfileWorkspace() {
   return (
     <section className="profile-shell" aria-labelledby="profile-title">
       <aside className="identity-card">
-        <div className="avatar-placeholder" aria-hidden="true">
-          {(profile.displayName ?? profile.username).slice(0, 1).toUpperCase()}
-        </div>
+        {profile.avatarMediaId ? (
+          <ManagedImage
+            mediaId={profile.avatarMediaId}
+            variant="thumbnail"
+            alt={`Avatar de ${profile.displayName ?? profile.username}`}
+            width={128}
+            height={128}
+            className="avatar-image"
+          />
+        ) : (
+          <div className="avatar-placeholder" aria-hidden="true">
+            {(profile.displayName ?? profile.username)
+              .slice(0, 1)
+              .toUpperCase()}
+          </div>
+        )}
         <div className="eyebrow">Tu identidad</div>
         <h1 id="profile-title">{profile.displayName ?? profile.username}</h1>
         <p className="username">@{profile.username}</p>
@@ -177,6 +225,33 @@ export function ProfileWorkspace() {
         <p className="lead">
           Estos datos no cambian tu cuenta, correo ni permisos.
         </p>
+
+        <form
+          className="media-upload avatar-upload"
+          onSubmit={handleAvatarUpload}
+        >
+          <label>
+            Foto de perfil
+            <input
+              name="avatar"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              required
+            />
+          </label>
+          <small>Se recortará en formato cuadrado · máximo 8 MB.</small>
+          <button className="secondary-action" disabled={avatarPending}>
+            {avatarPending ? "Guardando…" : "Subir avatar"}
+          </button>
+          {avatarMessage ? (
+            <p
+              className={`form-message ${avatarMessage.includes("actualizado") ? "success-message" : "error-message"}`}
+              role="status"
+            >
+              {avatarMessage}
+            </p>
+          ) : null}
+        </form>
 
         <form className="stack-form" onSubmit={handleSave}>
           <label>
@@ -215,17 +290,6 @@ export function ProfileWorkspace() {
               </select>
             </label>
           </div>
-          <label>
-            URL del avatar
-            <input
-              name="avatarUrl"
-              type="url"
-              defaultValue={profile.avatarUrl ?? ""}
-              maxLength={2048}
-              placeholder="https://…"
-            />
-          </label>
-
           {message ? (
             <p
               className={`form-message ${message.includes("actualizado") ? "success-message" : "error-message"}`}

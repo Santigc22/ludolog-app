@@ -138,6 +138,7 @@ test("returns an approved public game and only its ordered editions", async () =
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(body.game.name).toBe("Detail Public");
   expect(body.game.isOwnedByViewer).toBe(false);
+  expect(body.game.canManageCatalog).toBe(false);
   expect(body.game.editions.map(({ editionName }) => editionName)).toEqual([
     "First edition",
     "Second edition",
@@ -156,6 +157,7 @@ test("returns an owned private game with an empty edition list", async () => {
     name: "Detail Own Private",
     visibility: "PRIVATE",
     isOwnedByViewer: true,
+    canManageCatalog: false,
     editions: [],
   });
 });

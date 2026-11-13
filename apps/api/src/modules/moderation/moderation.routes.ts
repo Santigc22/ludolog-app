@@ -4,8 +4,11 @@ import { requireAuth, requireCsrf } from "../../middleware/authentication.js";
 import { requirePermission } from "../../middleware/authorization.js";
 import { requireWebOrigin } from "../../middleware/require-web-origin.js";
 import {
+  approveEdition,
   approveCase,
+  listEditionCases,
   listCases,
+  rejectEdition,
   rejectCase,
   submitGame,
 } from "./moderation.controller.js";
@@ -36,6 +39,16 @@ moderationRouter.options(
   requireWebOrigin,
   allowModerationWrite,
 );
+moderationRouter.options(
+  "/moderation/edition-cases/:caseId/approve",
+  requireWebOrigin,
+  allowModerationWrite,
+);
+moderationRouter.options(
+  "/moderation/edition-cases/:caseId/reject",
+  requireWebOrigin,
+  allowModerationWrite,
+);
 
 moderationRouter.post(
   "/games/:gameId/moderation-submissions",
@@ -54,6 +67,14 @@ moderationRouter.get(
   listCases,
 );
 
+moderationRouter.get(
+  "/moderation/editions",
+  requireWebOrigin,
+  requireAuth,
+  requirePermission("moderation.view"),
+  listEditionCases,
+);
+
 moderationRouter.post(
   "/moderation/cases/:caseId/approve",
   requireWebOrigin,
@@ -70,4 +91,22 @@ moderationRouter.post(
   requirePermission("moderation.reject"),
   requireCsrf,
   rejectCase,
+);
+
+moderationRouter.post(
+  "/moderation/edition-cases/:caseId/approve",
+  requireWebOrigin,
+  requireAuth,
+  requirePermission("moderation.approve"),
+  requireCsrf,
+  approveEdition,
+);
+
+moderationRouter.post(
+  "/moderation/edition-cases/:caseId/reject",
+  requireWebOrigin,
+  requireAuth,
+  requirePermission("moderation.reject"),
+  requireCsrf,
+  rejectEdition,
 );

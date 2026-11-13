@@ -21,6 +21,7 @@ El contrato fuente es `CopyListQuerySchema`:
 | `lifecycle` | `ACTIVE` | `ACTIVE`, `EXITED` o `ALL` |
 | `q` | Sin filtro | Nombre parcial del juego |
 | `mechanic` | Sin filtro | Nombre parcial de una mecánica |
+| `category` | Sin filtro | Nombre parcial de una categoría |
 | `minPlayers` | Sin filtro | Límite inferior del rango buscado |
 | `maxPlayers` | Sin filtro | Límite superior del rango buscado |
 
@@ -35,7 +36,8 @@ La consulta predeterminada nunca incluye salidas ni movimientos históricos.
 El orden es `createdAt` descendente y luego `id` descendente.
 Los filtros de jugadores siguen la misma regla que el catálogo: al completar
 ambos límites se exige una coincidencia exacta del rango registrado. Un filtro
-1–4 no incluye un juego 2–4.
+1–4 no incluye un juego 2–4. Con un único límite, el valor se trata como una
+cantidad puntual que debe estar incluida en el rango del juego.
 
 ### Respuesta `200`
 
@@ -64,7 +66,8 @@ distingue explícitamente juego, edición opcional, condición física y lifecyc
         "name": "Catan",
         "minPlayers": 3,
         "maxPlayers": 4,
-        "mechanics": ["Gestión de recursos", "Negociación"]
+        "mechanics": ["Gestión de recursos", "Negociación"],
+        "categories": ["Civilización", "Económico"]
       },
       "edition": null
     }
@@ -108,7 +111,7 @@ Ambos endpoints envían `Cache-Control: no-store`.
 ## Pruebas automatizadas
 
 `copy-read.test.ts` cubre el filtro activo predeterminado, salidas, histórico,
-paginación, filtros por juego, mecánica y jugadores, edición opcional,
+paginación, filtros por juego, mecánica, categoría y jugadores, edición opcional,
 condición, lifecycle, detalle con
 intervalos y adquisiciones, acceso de distintos roles, aislamiento de
 ludotecas privadas, sesión requerida y validación de parámetros.

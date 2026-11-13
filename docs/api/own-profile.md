@@ -17,6 +17,7 @@ Requiere una sesión válida y un `Origin` igual a `WEB_ORIGIN`. Devuelve
     "displayName": "Player One",
     "bio": "Board-game enthusiast",
     "avatarUrl": "https://example.com/avatar.png",
+    "avatarMediaId": null,
     "locationText": "Bogotá",
     "visibility": "PUBLIC",
     "createdAt": "2026-09-21T20:00:00.000Z",
@@ -56,6 +57,10 @@ Campos permitidos:
 Debe enviarse al menos un campo. El contrato es estricto: propiedades como
 `email`, `username`, `password`, `status`, `role` o `userId` provocan
 `400 VALIDATION_ERROR`; no se ignoran silenciosamente.
+
+La interfaz web utiliza la carga local documentada en [media.md](./media.md),
+que devuelve `avatarMediaId` y limpia la URL heredada. `avatarUrl` se conserva
+temporalmente en el contrato para compatibilidad con datos anteriores.
 
 ## Errores
 

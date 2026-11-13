@@ -18,6 +18,7 @@ export const OwnProfileSchema = z.object({
   displayName: z.string().nullable(),
   bio: z.string().nullable(),
   avatarUrl: httpUrl.nullable(),
+  avatarMediaId: z.uuid().nullable(),
   locationText: z.string().nullable(),
   visibility: ProfileVisibilitySchema,
   createdAt: z.iso.datetime(),

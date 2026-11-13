@@ -20,6 +20,7 @@ export const requireAuth: RequestHandler = async (request, _response, next) => {
       username: session.username,
       displayName: session.displayName,
       visibility: session.visibility,
+      roles: session.roles,
       csrfTokenHash: session.csrfTokenHash,
     };
     next();
@@ -50,6 +51,7 @@ export const optionalAuth: RequestHandler = async (
       username: session.username,
       displayName: session.displayName,
       visibility: session.visibility,
+      roles: session.roles,
       csrfTokenHash: session.csrfTokenHash,
     };
     next();

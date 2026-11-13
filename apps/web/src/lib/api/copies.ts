@@ -6,6 +6,7 @@ import {
   ExitCopyRequestSchema,
   MoveCopyRequestSchema,
   UpdateCopyRequestSchema,
+  UpdateCopyResponseSchema,
   type CreateCopyRequest,
   type ExitCopyRequest,
   type MoveCopyRequest,
@@ -29,6 +30,7 @@ export function listCopies(
     lifecycle?: "ACTIVE" | "EXITED" | "ALL";
     q?: string | undefined;
     mechanic?: string | undefined;
+    category?: string | undefined;
     minPlayers?: number | undefined;
     maxPlayers?: number | undefined;
   },
@@ -40,6 +42,7 @@ export function listCopies(
   });
   if (options?.q?.trim()) query.set("q", options.q.trim());
   if (options?.mechanic?.trim()) query.set("mechanic", options.mechanic.trim());
+  if (options?.category?.trim()) query.set("category", options.category.trim());
   if (options?.minPlayers !== undefined)
     query.set("minPlayers", String(options.minPlayers));
   if (options?.maxPlayers !== undefined)
@@ -76,7 +79,7 @@ export function updateCopy(copyId: string, input: UpdateCopyRequest) {
   const body = UpdateCopyRequestSchema.parse(input);
   return apiFetch(
     `copies/${encodeURIComponent(copyId)}`,
-    CopyDetailResponseSchema,
+    UpdateCopyResponseSchema,
     {
       method: "PATCH",
       headers: writeHeaders(),

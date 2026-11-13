@@ -1,10 +1,13 @@
 import {
+  EditionModerationListQuerySchema,
   GameIdParamsSchema,
   GameModerationListQuerySchema,
   ModerationCaseIdParamsSchema,
   RejectModerationCaseRequestSchema,
   SubmitGameForModerationRequestSchema,
   type ErrorResponse,
+  type EditionModerationCaseResponse,
+  type EditionModerationListResponse,
   type GameIdParams,
   type GameModerationCaseResponse,
   type GameModerationListResponse,
@@ -14,8 +17,11 @@ import type { RequestHandler } from "express";
 
 import { ApplicationError } from "../../errors/application-error.js";
 import {
+  approveEditionCase,
   approveModerationCase,
+  listEditionModerationQueue,
   listModerationQueue,
+  rejectEditionCase,
   rejectModerationCase,
   submitGameForModerationByOwner,
 } from "./moderation.service.js";
@@ -114,6 +120,68 @@ export const rejectCase: RequestHandler<
     });
   }
   const result = await rejectModerationCase(
+    params.data.caseId,
+    userId(request),
+    body.data,
+  );
+  response.setHeader("Cache-Control", "no-store");
+  response.status(200).json(result);
+};
+
+export const listEditionCases: RequestHandler<
+  Record<string, never>,
+  EditionModerationListResponse | ErrorResponse
+> = async (request, response) => {
+  const parsed = EditionModerationListQuerySchema.safeParse(request.query);
+  if (!parsed.success) {
+    throw new ApplicationError({
+      code: "VALIDATION_ERROR",
+      message: "The query parameters are invalid.",
+      statusCode: 400,
+      details: { fields: parsed.error.flatten().fieldErrors },
+    });
+  }
+  const result = await listEditionModerationQueue(userId(request), parsed.data);
+  response.setHeader("Cache-Control", "no-store");
+  response.status(200).json(result);
+};
+
+export const approveEdition: RequestHandler<
+  ModerationCaseIdParams,
+  EditionModerationCaseResponse | ErrorResponse
+> = async (request, response) => {
+  const params = ModerationCaseIdParamsSchema.safeParse(request.params);
+  if (!params.success) {
+    throw new ApplicationError({
+      code: "VALIDATION_ERROR",
+      message: "The route parameters are invalid.",
+      statusCode: 400,
+      details: { fields: params.error.flatten().fieldErrors },
+    });
+  }
+  const result = await approveEditionCase(params.data.caseId, userId(request));
+  response.setHeader("Cache-Control", "no-store");
+  response.status(200).json(result);
+};
+
+export const rejectEdition: RequestHandler<
+  ModerationCaseIdParams,
+  EditionModerationCaseResponse | ErrorResponse
+> = async (request, response) => {
+  const params = ModerationCaseIdParamsSchema.safeParse(request.params);
+  const body = RejectModerationCaseRequestSchema.safeParse(request.body);
+  if (!params.success || !body.success) {
+    throw new ApplicationError({
+      code: "VALIDATION_ERROR",
+      message: "The request is invalid.",
+      statusCode: 400,
+      details: {
+        params: params.success ? undefined : params.error.flatten().fieldErrors,
+        fields: body.success ? undefined : body.error.flatten().fieldErrors,
+      },
+    });
+  }
+  const result = await rejectEditionCase(
     params.data.caseId,
     userId(request),
     body.data,

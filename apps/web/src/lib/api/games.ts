@@ -3,8 +3,11 @@ import {
   CreatePrivateGameResponseSchema,
   GameDetailResponseSchema,
   GameListResponseSchema,
+  UpdatePublicGameRequestSchema,
+  UpdatePublicGameResponseSchema,
   type CreatePrivateGameRequest,
   type GameListQuery,
+  type UpdatePublicGameRequest,
 } from "@ludoteca/contracts";
 
 import { apiFetch, readBrowserCookie } from "./client";
@@ -18,6 +21,7 @@ export function listGames(options?: Partial<GameListQuery>) {
 
   if (options?.q?.trim()) query.set("q", options.q.trim());
   if (options?.mechanic?.trim()) query.set("mechanic", options.mechanic.trim());
+  if (options?.category?.trim()) query.set("category", options.category.trim());
   if (options?.minPlayers !== undefined)
     query.set("minPlayers", String(options.minPlayers));
   if (options?.maxPlayers !== undefined)
@@ -47,4 +51,23 @@ export function createPrivateGame(input: CreatePrivateGameRequest) {
     },
     body: JSON.stringify(body),
   });
+}
+
+export function updatePublicGame(
+  gameId: string,
+  input: UpdatePublicGameRequest,
+) {
+  const body = UpdatePublicGameRequestSchema.parse(input);
+  return apiFetch(
+    `games/${encodeURIComponent(gameId)}`,
+    UpdatePublicGameResponseSchema,
+    {
+      method: "PATCH",
+      headers: {
+        "content-type": "application/json",
+        "x-csrf-token": readBrowserCookie("XSRF-TOKEN") ?? "",
+      },
+      body: JSON.stringify(body),
+    },
+  );
 }

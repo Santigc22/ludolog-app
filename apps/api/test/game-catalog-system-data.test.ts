@@ -4,6 +4,7 @@ import {
   gameCatalogStructuralCodes,
   initialGameScopePolicy,
   lookupSeeds,
+  rolePermissionSeeds,
 } from "../src/infrastructure/database/seeds/system/data.js";
 
 function codesFor(table: string): string[] {
@@ -49,5 +50,14 @@ describe("game catalog system data", () => {
     expect(lookupSeeds.some(({ table }) => table === "game_editions")).toBe(
       false,
     );
+  });
+
+  test("reserves public game administration for content managers and admins", () => {
+    expect(rolePermissionSeeds.CONTENT_MANAGER).toContain(
+      "catalog.game.manage",
+    );
+    expect(rolePermissionSeeds.ADMIN).toContain("catalog.game.manage");
+    expect(rolePermissionSeeds.MODERATOR).not.toContain("catalog.game.manage");
+    expect(rolePermissionSeeds.USER).not.toContain("catalog.game.manage");
   });
 });

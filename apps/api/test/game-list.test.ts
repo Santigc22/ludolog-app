@@ -23,6 +23,7 @@ let outsiderId: string;
 let sessionCookie: string;
 let insertedGameIds: string[] = [];
 let insertedMechanicId: string;
+let insertedCategoryId: string;
 let listToken: string;
 
 beforeAll(async () => {
@@ -99,6 +100,16 @@ beforeAll(async () => {
      VALUES ($1, $3), ($2, $3)`,
     [insertedGameIds[0], insertedGameIds[5], insertedMechanicId],
   );
+  const category = await databasePool.query<{ id: string }>(
+    `INSERT INTO categories (name) VALUES ($1) RETURNING id`,
+    [`Robots ${listToken}`],
+  );
+  insertedCategoryId = category.rows[0]!.id;
+  await databasePool.query(
+    `INSERT INTO game_categories (game_id, category_id)
+     VALUES ($1, $3), ($2, $3)`,
+    [insertedGameIds[0], insertedGameIds[5], insertedCategoryId],
+  );
 });
 
 afterAll(async () => {
@@ -107,6 +118,9 @@ afterAll(async () => {
   ]);
   await databasePool.query("DELETE FROM mechanics WHERE id = $1", [
     insertedMechanicId,
+  ]);
+  await databasePool.query("DELETE FROM categories WHERE id = $1", [
+    insertedCategoryId,
   ]);
   await databasePool.query("DELETE FROM users WHERE id = ANY($1::uuid[])", [
     [ownerId, outsiderId],
@@ -178,10 +192,12 @@ test("search is case-insensitive and treats wildcard characters literally", asyn
   ]);
 });
 
-test("filters open capacity limits and exact recorded player ranges", async () => {
-  const supportsAtLeastFour = GameListResponseSchema.parse(
+test("filters a single supported player count and exact recorded ranges", async () => {
+  const supportsExactlyFour = GameListResponseSchema.parse(
     await (
-      await listGames(`?q=${listToken}&mechanic=STRATEGY&minPlayers=4`)
+      await listGames(
+        `?q=${listToken}&mechanic=STRATEGY&category=robot&minPlayers=4`,
+      )
     ).json(),
   );
   const exactRecordedRange = GameListResponseSchema.parse(
@@ -198,13 +214,19 @@ test("filters open capacity limits and exact recorded player ranges", async () =
       )
     ).json(),
   );
-  const supportsAtLeastFive = GameListResponseSchema.parse(
+  const supportsExactlyFive = GameListResponseSchema.parse(
     await (
       await listGames(`?q=${listToken}&mechanic=strategy&minPlayers=5`)
     ).json(),
   );
+  const supportsExactlyOne = GameListResponseSchema.parse(
+    await (await listGames(`?q=${listToken}&minPlayers=1`)).json(),
+  );
+  const supportsExactlyThreeFromUpperField = GameListResponseSchema.parse(
+    await (await listGames(`?q=${listToken}&maxPlayers=3`)).json(),
+  );
 
-  expect(supportsAtLeastFour.games.map(({ name }) => name)).toEqual([
+  expect(supportsExactlyFour.games.map(({ name }) => name)).toEqual([
     `100% Fun ${listToken}`,
     `Alpha Public ${listToken}`,
   ]);
@@ -214,9 +236,22 @@ test("filters open capacity limits and exact recorded player ranges", async () =
   expect(exactRecordedRange.games[0]?.mechanics).toEqual([
     `Strategy ${listToken}`,
   ]);
+  expect(exactRecordedRange.games[0]?.categories).toEqual([
+    `Robots ${listToken}`,
+  ]);
   expect(missingExactRange.games).toEqual([]);
-  expect(supportsAtLeastFive.games.map(({ name }) => name)).toEqual([
+  expect(supportsExactlyFive.games.map(({ name }) => name)).toEqual([
     `100% Fun ${listToken}`,
+  ]);
+  expect(supportsExactlyOne.games.map(({ name }) => name)).toEqual([
+    `Newest Public ${listToken}`,
+  ]);
+  expect(
+    supportsExactlyThreeFromUpperField.games.map(({ name }) => name),
+  ).toEqual([
+    `100% Fun ${listToken}`,
+    `Alpha Public ${listToken}`,
+    `Newest Public ${listToken}`,
   ]);
 });
 

@@ -11,6 +11,7 @@ type ProfileRow = Readonly<{
   display_name: string | null;
   bio: string | null;
   avatar_url: string | null;
+  avatar_media_id: string | null;
   location_text: string | null;
   visibility_code: "PRIVATE" | "PUBLIC";
   created_at: Date;
@@ -24,6 +25,7 @@ function mapProfile(row: ProfileRow): OwnProfile {
     displayName: row.display_name,
     bio: row.bio,
     avatarUrl: row.avatar_url,
+    avatarMediaId: row.avatar_media_id,
     locationText: row.location_text,
     visibility: row.visibility_code,
     createdAt: row.created_at.toISOString(),
@@ -33,7 +35,8 @@ function mapProfile(row: ProfileRow): OwnProfile {
 
 const selectOwnProfile = `
   SELECT profiles.user_id, users.username, profiles.display_name, profiles.bio,
-         profiles.avatar_url, profiles.location_text, profiles.visibility_code,
+         profiles.avatar_url, profiles.avatar_media_id, profiles.location_text,
+         profiles.visibility_code,
          profiles.created_at, profiles.updated_at
   FROM profiles
   INNER JOIN users ON users.id = profiles.user_id`;

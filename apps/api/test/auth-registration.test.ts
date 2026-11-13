@@ -210,6 +210,27 @@ test("GET /auth/me returns the user and renews session activity", async () => {
 
   expect(response.status).toBe(200);
   expect(body.user.id).toBe(registeredUserId);
+  expect(body.user.roles).toEqual(["USER"]);
+});
+
+test("GET /auth/me reflects current global roles", async () => {
+  await databasePool.query(
+    `INSERT INTO user_roles (user_id, role_code)
+     VALUES ($1, 'MODERATOR')`,
+    [registeredUserId],
+  );
+  try {
+    const response = await getMe(activeCookie);
+    const body = CurrentSessionResponseSchema.parse(await response.json());
+
+    expect(response.status).toBe(200);
+    expect(body.user.roles).toEqual(["MODERATOR", "USER"]);
+  } finally {
+    await databasePool.query(
+      "DELETE FROM user_roles WHERE user_id = $1 AND role_code = 'MODERATOR'",
+      [registeredUserId],
+    );
+  }
 });
 
 test("GET /auth/me identifies an expired session", async () => {

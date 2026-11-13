@@ -12,6 +12,7 @@ import {
   type CopyIdParams,
   type CopyListResponse,
   type ErrorResponse,
+  type UpdateCopyResponse,
 } from "@ludoteca/contracts";
 import type { RequestHandler } from "express";
 
@@ -118,7 +119,7 @@ export const getCopy: RequestHandler<
 
 export const updateCopy: RequestHandler<
   CopyIdParams,
-  CopyDetailResponse | ErrorResponse
+  UpdateCopyResponse | ErrorResponse
 > = async (request, response) => {
   const params = CopyIdParamsSchema.safeParse(request.params);
   const body = UpdateCopyRequestSchema.safeParse(request.body);

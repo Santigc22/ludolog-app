@@ -27,14 +27,17 @@ El contrato fuente es `CreatePrivateGameRequestSchema`:
   "maxDurationMinutes": 60,
   "minAge": 10,
   "maxAge": 99,
-  "complexity": 2.75
+  "complexity": 2.75,
+  "mechanics": ["Dice rolling", "Push your luck"],
+  "categories": ["Solitario", "Robots"]
 }
 ```
 
 `name`, `minPlayers` y `maxPlayers` son obligatorios. Los demás campos son
 opcionales y pueden enviarse como `null` cuando el contrato lo permite. Los
 rangos máximos no pueden ser menores que sus mínimos y la complejidad debe estar
-entre 0 y 5.
+entre 0 y 5. Mecánicas y categorías son listas opcionales; se normalizan y
+deduplican sin distinguir mayúsculas.
 
 El contrato es estricto. Campos como `visibility`, `classification`,
 `moderationStatus`, `createdByUserId` o `editions` son rechazados. La API fija
@@ -69,6 +72,8 @@ arreglo vacío:
     "minAge": 10,
     "maxAge": 99,
     "complexity": 2.75,
+    "mechanics": ["Dice rolling", "Push your luck"],
+    "categories": ["Robots", "Solitario"],
     "classification": "PRIVATE",
     "visibility": "PRIVATE",
     "moderationStatus": "DRAFT",

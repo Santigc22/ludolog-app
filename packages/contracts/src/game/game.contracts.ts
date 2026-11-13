@@ -20,10 +20,16 @@ export const GameModerationStatusSchema = z.enum([
   "BLOCKED",
 ]);
 export const GameListSortSchema = z.enum(["name", "newest", "publicationYear"]);
+export const GameEditionModerationStatusSchema = z.enum([
+  "PENDING_REVIEW",
+  "APPROVED",
+  "REJECTED",
+]);
 
 export const GameListQuerySchema = PaginationQuerySchema.extend({
   q: z.string().trim().min(1).max(100).optional(),
   mechanic: z.string().trim().min(1).max(100).optional(),
+  category: z.string().trim().min(1).max(100).optional(),
   minPlayers: z.coerce.number().int().min(1).max(32_767).optional(),
   maxPlayers: z.coerce.number().int().min(1).max(32_767).optional(),
   sort: GameListSortSchema.optional().default("name"),
@@ -52,6 +58,8 @@ export const GameSummarySchema = z.object({
   minPlayers: z.number().int().min(1),
   maxPlayers: z.number().int().min(1),
   mechanics: z.array(z.string().min(1).max(120)),
+  categories: z.array(z.string().min(1).max(120)),
+  coverMediaId: z.uuid().nullable(),
   minDurationMinutes: z.number().int().min(0).nullable(),
   maxDurationMinutes: z.number().int().min(0).nullable(),
   minAge: z.number().int().min(0).nullable(),
@@ -84,11 +92,14 @@ export const GameEditionSchema = z.object({
   sku: z.string().max(80).nullable(),
   upc: z.string().max(32).nullable(),
   notes: z.string().nullable(),
+  moderationStatus: GameEditionModerationStatusSchema,
+  isOwnedByViewer: z.boolean(),
   createdAt: z.iso.datetime(),
 });
 
 export const GameDetailSchema = GameSummarySchema.extend({
   editions: z.array(GameEditionSchema),
+  canManageCatalog: z.boolean(),
 });
 
 export const GameDetailResponseSchema = z.object({
@@ -97,6 +108,19 @@ export const GameDetailResponseSchema = z.object({
 
 const nullableText = (maximum: number) =>
   z.string().trim().min(1).max(maximum).nullable();
+
+const normalizedTagList = z
+  .array(z.string().trim().min(1).max(120))
+  .max(50)
+  .transform((values) => {
+    const seen = new Set<string>();
+    return values.filter((value) => {
+      const normalized = value.toLocaleLowerCase();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  });
 
 export const CreatePrivateGameRequestSchema = z
   .object({
@@ -110,6 +134,8 @@ export const CreatePrivateGameRequestSchema = z
     minAge: z.number().int().min(0).max(32_767).nullable().optional(),
     maxAge: z.number().int().min(0).max(32_767).nullable().optional(),
     complexity: z.number().min(0).max(5).nullable().optional(),
+    mechanics: normalizedTagList.optional(),
+    categories: normalizedTagList.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -148,6 +174,80 @@ export const CreatePrivateGameRequestSchema = z
 
 export const CreatePrivateGameResponseSchema = GameDetailResponseSchema;
 
+const editableGameFields = {
+  name: z.string().trim().min(1).max(220),
+  description: nullableText(2_000),
+  publicationYear: z.number().int().min(0).max(32_767).nullable(),
+  minPlayers: z.number().int().min(1).max(32_767),
+  maxPlayers: z.number().int().min(1).max(32_767),
+  minDurationMinutes: z.number().int().min(0).nullable(),
+  maxDurationMinutes: z.number().int().min(0).nullable(),
+  minAge: z.number().int().min(0).max(32_767).nullable(),
+  maxAge: z.number().int().min(0).max(32_767).nullable(),
+  complexity: z.number().min(0).max(5).nullable(),
+  mechanics: normalizedTagList,
+  categories: normalizedTagList,
+};
+
+export const UpdatePublicGameRequestSchema = z
+  .object({
+    name: editableGameFields.name.optional(),
+    description: editableGameFields.description.optional(),
+    publicationYear: editableGameFields.publicationYear.optional(),
+    minPlayers: editableGameFields.minPlayers.optional(),
+    maxPlayers: editableGameFields.maxPlayers.optional(),
+    minDurationMinutes: editableGameFields.minDurationMinutes.optional(),
+    maxDurationMinutes: editableGameFields.maxDurationMinutes.optional(),
+    minAge: editableGameFields.minAge.optional(),
+    maxAge: editableGameFields.maxAge.optional(),
+    complexity: editableGameFields.complexity.optional(),
+    mechanics: editableGameFields.mechanics.optional(),
+    categories: editableGameFields.categories.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field must be provided.",
+  })
+  .superRefine((value, context) => {
+    if (
+      value.minPlayers !== undefined &&
+      value.maxPlayers !== undefined &&
+      value.maxPlayers < value.minPlayers
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Maximum players must be greater than or equal to minimum players.",
+        path: ["maxPlayers"],
+      });
+    }
+    if (
+      value.minDurationMinutes != null &&
+      value.maxDurationMinutes != null &&
+      value.maxDurationMinutes < value.minDurationMinutes
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Maximum duration must be greater than or equal to minimum duration.",
+        path: ["maxDurationMinutes"],
+      });
+    }
+    if (
+      value.minAge != null &&
+      value.maxAge != null &&
+      value.maxAge < value.minAge
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Maximum age must be greater than or equal to minimum age.",
+        path: ["maxAge"],
+      });
+    }
+  });
+
+export const UpdatePublicGameResponseSchema = GameDetailResponseSchema;
+
 export type GameListQuery = z.output<typeof GameListQuerySchema>;
 export type GameListResponse = z.infer<typeof GameListResponseSchema>;
 export type GameSummary = z.infer<typeof GameSummarySchema>;
@@ -163,4 +263,13 @@ export type NormalizedCreatePrivateGameRequest = z.output<
 >;
 export type CreatePrivateGameResponse = z.infer<
   typeof CreatePrivateGameResponseSchema
+>;
+export type UpdatePublicGameRequest = z.input<
+  typeof UpdatePublicGameRequestSchema
+>;
+export type NormalizedUpdatePublicGameRequest = z.output<
+  typeof UpdatePublicGameRequestSchema
+>;
+export type UpdatePublicGameResponse = z.infer<
+  typeof UpdatePublicGameResponseSchema
 >;

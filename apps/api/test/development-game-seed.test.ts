@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   developmentGameEditions,
   developmentGames,
+  developmentModerationCases,
   developmentCollectionMembers,
   developmentCollections,
   developmentUserPassword,
@@ -22,6 +23,12 @@ describe("development game seed", () => {
       developmentGames.length,
     );
     expect(developmentGameEditions).toHaveLength(1);
+    expect(developmentModerationCases).toHaveLength(4);
+    expect(
+      developmentModerationCases.every(
+        ({ approvedByUserId }) => approvedByUserId === developmentUsers[2].id,
+      ),
+    ).toBe(true);
     expect(
       developmentGames.some(
         ({ id }) => id === developmentGameEditions[0].gameId,

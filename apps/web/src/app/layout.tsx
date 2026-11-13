@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { SiteNavigation } from "../components/layout/site-navigation";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,16 +22,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
           <Link className="brand-mark" href="/">
             LUDOLOG
           </Link>
-          <nav aria-label="Navegación principal">
-            <Link href="/">Inicio</Link>
-            <Link href="/catalogo">Catálogo</Link>
-            <Link href="/ludotecas">Mis ludotecas</Link>
-            <Link href="/moderacion">Moderación</Link>
-            <Link href="/perfil">Mi perfil</Link>
-            <Link className="nav-access" href="/acceso">
-              Acceder
-            </Link>
-          </nav>
+          <SiteNavigation />
         </header>
         {children}
       </body>

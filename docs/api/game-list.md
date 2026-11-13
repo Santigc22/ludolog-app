@@ -21,6 +21,7 @@ El contrato fuente es `GameListQuerySchema` de `@ludoteca/contracts`:
 |---|---:|---|
 | `q` | Sin filtro | Texto de 1 a 100 caracteres después de `trim` |
 | `mechanic` | Sin filtro | Nombre parcial de una mecánica, de 1 a 100 caracteres |
+| `category` | Sin filtro | Nombre parcial de una categoría, de 1 a 100 caracteres |
 | `minPlayers` | Sin filtro | Límite inferior del rango buscado |
 | `maxPlayers` | Sin filtro | Límite superior del rango buscado |
 | `page` | `1` | Entero mayor o igual a 1 |
@@ -32,9 +33,10 @@ tratan literalmente, no como comodines proporcionados por el cliente.
 
 Cuando se envían ambos límites, deben coincidir exactamente con el rango
 registrado del juego: `minPlayers=1&maxPlayers=4` devuelve juegos 1–4, pero no
-un juego 2–4. Si solo se envía `minPlayers=4`, también aparece un juego 2–8
-porque alcanza al menos esa capacidad. Si se envían ambos límites,
-`maxPlayers` debe ser igual o mayor que `minPlayers`.
+un juego 2–4. Cuando se envía solo uno, se interpreta como una cantidad puntual
+que el juego debe admitir: `minPlayers=4` o `maxPlayers=4` incluye un juego 2–8,
+pero una búsqueda puntual de 1 no incluye juegos cuyo mínimo sea 2. Si se
+envían ambos límites, `maxPlayers` debe ser igual o mayor que `minPlayers`.
 
 Órdenes estables:
 
@@ -46,7 +48,7 @@ porque alcanza al menos esa capacidad. Si se envían ambos límites,
 Ejemplo:
 
 ```text
-GET /api/v1/games?q=catan&mechanic=negociacion&minPlayers=4&page=1&pageSize=20&sort=name
+GET /api/v1/games?q=catan&mechanic=negociacion&category=economico&minPlayers=4&page=1&pageSize=20&sort=name
 ```
 
 ## Respuesta `200`
@@ -64,6 +66,7 @@ La respuesta usa `GameListResponseSchema` y `Cache-Control: no-store`:
       "minPlayers": 3,
       "maxPlayers": 4,
       "mechanics": ["Gestión de recursos", "Negociación"],
+      "categories": ["Civilización", "Económico"],
       "minDurationMinutes": 60,
       "maxDurationMinutes": 120,
       "minAge": 10,
@@ -103,5 +106,5 @@ no ejecuta consultas adicionales por juego.
 
 `game-list.test.ts` cubre catálogo anónimo, juego privado propio, aislamiento de
 privados ajenos, archivados, búsqueda literal e insensible a mayúsculas,
-mecánicas, rangos de capacidad de jugadores, ordenamiento, paginación y queries
-inválidas.
+mecánicas, categorías, rangos de capacidad de jugadores, ordenamiento,
+paginación y queries inválidas.

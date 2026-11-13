@@ -36,6 +36,8 @@ function toApiConfig(environment: ApiEnvironment) {
     port: environment.API_PORT,
     webOrigin: environment.WEB_ORIGIN,
     databaseUrl: environment.DATABASE_URL,
+    mediaStoragePath: environment.MEDIA_STORAGE_PATH,
+    mediaMaxUploadBytes: environment.MEDIA_MAX_UPLOAD_BYTES,
   });
 }
 

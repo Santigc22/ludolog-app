@@ -114,6 +114,7 @@ export const me: RequestHandler<
       email: auth.email,
       username: auth.username,
       status: "ACTIVE",
+      roles: auth.roles,
       profile: {
         displayName: auth.displayName,
         visibility: auth.visibility,

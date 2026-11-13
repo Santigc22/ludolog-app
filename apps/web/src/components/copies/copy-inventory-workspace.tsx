@@ -13,6 +13,7 @@ import type {
   GameSummary,
 } from "@ludoteca/contracts";
 
+import { ManagedImage } from "../media/managed-image";
 import { ApiRequestError } from "../../lib/api/client";
 import { listCollections } from "../../lib/api/collections";
 import {
@@ -53,6 +54,17 @@ function conditionLabel(condition: CopyCondition) {
   return conditions.find(([code]) => code === condition)?.[1] ?? condition;
 }
 
+function copyAlias(copy: CopyListItem) {
+  const alias = copy.alias?.trim();
+  return alias || null;
+}
+
+function playerLabel(game: CopyListItem["game"]) {
+  return game.minPlayers === game.maxPlayers
+    ? `${game.minPlayers} jugadores`
+    : `${game.minPlayers}–${game.maxPlayers} jugadores`;
+}
+
 function editionLabel(edition: {
   id: string;
   editionName: string | null;
@@ -67,6 +79,14 @@ function editionLabel(edition: {
   );
 }
 
+function editionStatusLabel(edition: CopyListItem["edition"]) {
+  if (edition?.moderationStatus === "PENDING_REVIEW") {
+    return "Pendiente de moderación";
+  }
+  if (edition?.moderationStatus === "REJECTED") return "Rechazada";
+  return null;
+}
+
 export function CopyInventoryWorkspace({
   collection,
   onGameCountChange,
@@ -79,6 +99,10 @@ export function CopyInventoryWorkspace({
   const [selected, setSelected] = useState<CopyDetail | null>(null);
   const [games, setGames] = useState<GameSummary[]>([]);
   const [selectedGame, setSelectedGame] = useState<GameDetail | null>(null);
+  const [proposeEdition, setProposeEdition] = useState(false);
+  const [editGame, setEditGame] = useState<GameDetail | null>(null);
+  const [editEditionId, setEditEditionId] = useState("");
+  const [editProposeEdition, setEditProposeEdition] = useState(false);
   const [destinations, setDestinations] = useState<Collection[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [pending, setPending] = useState(false);
@@ -89,10 +113,12 @@ export function CopyInventoryWorkspace({
   );
   const [query, setQuery] = useState("");
   const [mechanic, setMechanic] = useState("");
+  const [category, setCategory] = useState("");
   const [minPlayers, setMinPlayers] = useState<number | undefined>();
   const [maxPlayers, setMaxPlayers] = useState<number | undefined>();
   const [draftQuery, setDraftQuery] = useState("");
   const [draftMechanic, setDraftMechanic] = useState("");
+  const [draftCategory, setDraftCategory] = useState("");
   const [draftMinPlayers, setDraftMinPlayers] = useState("");
   const [draftMaxPlayers, setDraftMaxPlayers] = useState("");
   const [filterError, setFilterError] = useState<string | null>(null);
@@ -106,6 +132,7 @@ export function CopyInventoryWorkspace({
       lifecycle,
       q: query || undefined,
       mechanic: mechanic || undefined,
+      category: category || undefined,
       minPlayers,
       maxPlayers,
     })
@@ -121,6 +148,7 @@ export function CopyInventoryWorkspace({
     };
   }, [
     collection.id,
+    category,
     lifecycle,
     maxPlayers,
     mechanic,
@@ -141,21 +169,36 @@ export function CopyInventoryWorkspace({
       );
   }, [games.length, showCreate]);
 
+  async function showCopyDetail(copy: CopyDetail) {
+    setSelected(copy);
+    setEditGame(null);
+    setEditEditionId(copy.gameEditionId ?? "");
+    setEditProposeEdition(false);
+    try {
+      setEditGame((await getGame(copy.game.id)).game);
+    } catch {
+      setMessage({
+        kind: "error",
+        text: "No pudimos cargar las ediciones disponibles.",
+      });
+    }
+  }
+
   async function refreshSelected(copyId: string) {
     try {
       const response = await getCopy(copyId);
-      setSelected(response.copy);
+      await showCopyDetail(response.copy);
     } catch {
       setSelected(null);
     }
     setReload((value) => value + 1);
   }
 
-  async function handleSelect(copyId: string) {
+  async function handleSelect(copyId: string, clearMessage = true) {
     setPending(true);
-    setMessage(null);
+    if (clearMessage) setMessage(null);
     try {
-      setSelected((await getCopy(copyId)).copy);
+      await showCopyDetail((await getCopy(copyId)).copy);
     } catch {
       setMessage({
         kind: "error",
@@ -168,6 +211,7 @@ export function CopyInventoryWorkspace({
 
   async function handleGameChange(gameId: string) {
     setSelectedGame(null);
+    setProposeEdition(false);
     if (!gameId) return;
     try {
       setSelectedGame((await getGame(gameId)).game);
@@ -186,20 +230,43 @@ export function CopyInventoryWorkspace({
     setPending(true);
     setMessage(null);
     try {
+      const optionalText = (name: string) =>
+        String(form.get(name) ?? "").trim() || null;
+      const publicationYear = optionalText("editionPublicationYear");
       const response = await createCopy(collection.id, {
         gameId: String(form.get("gameId") ?? ""),
-        gameEditionId: String(form.get("gameEditionId") ?? "") || null,
+        gameEditionId: proposeEdition
+          ? null
+          : String(form.get("gameEditionId") ?? "") || null,
+        proposedEdition: proposeEdition
+          ? {
+              editionName: String(form.get("editionName") ?? ""),
+              editionNumber: optionalText("editionNumber"),
+              languageCode: optionalText("editionLanguageCode"),
+              publicationYear: publicationYear ? Number(publicationYear) : null,
+              isbn: optionalText("editionIsbn"),
+              sku: optionalText("editionSku"),
+              upc: optionalText("editionUpc"),
+              notes: optionalText("editionNotes"),
+            }
+          : undefined,
         condition: String(form.get("condition")) as CopyCondition,
         alias: String(form.get("alias") ?? "").trim() || null,
         notes: String(form.get("notes") ?? "").trim() || null,
       });
       formElement.reset();
       setSelectedGame(null);
+      setProposeEdition(false);
       setShowCreate(false);
-      setMessage({ kind: "success", text: "La copia quedó registrada." });
+      setMessage({
+        kind: "success",
+        text: response.editionProposal
+          ? "La copia quedó registrada y la nueva edición fue enviada a moderación."
+          : "La copia quedó registrada.",
+      });
       onGameCountChange?.(1);
       setReload((value) => value + 1);
-      await handleSelect(response.copy.id);
+      await handleSelect(response.copy.id, false);
     } catch (error) {
       setMessage({
         kind: "error",
@@ -221,16 +288,47 @@ export function CopyInventoryWorkspace({
     setPending(true);
     setMessage(null);
     try {
+      const optionalText = (name: string) =>
+        String(form.get(name) ?? "").trim() || null;
+      const publicationYear = optionalText("editEditionPublicationYear");
       const response = await updateCopy(selected.id, {
         alias: String(form.get("alias") ?? "").trim() || null,
         notes: String(form.get("notes") ?? "").trim() || null,
         condition: String(form.get("condition")) as CopyCondition,
+        gameEditionId: editProposeEdition ? undefined : editEditionId || null,
+        proposedEdition: editProposeEdition
+          ? {
+              editionName: String(form.get("editEditionName") ?? ""),
+              editionNumber: optionalText("editEditionNumber"),
+              languageCode: optionalText("editEditionLanguageCode"),
+              publicationYear: publicationYear ? Number(publicationYear) : null,
+              isbn: optionalText("editEditionIsbn"),
+              sku: optionalText("editEditionSku"),
+              upc: optionalText("editEditionUpc"),
+              notes: optionalText("editEditionNotes"),
+            }
+          : undefined,
       });
-      setSelected(response.copy);
-      setMessage({ kind: "success", text: "La copia quedó actualizada." });
+      await showCopyDetail(response.copy);
+      setMessage({
+        kind: "success",
+        text: response.editionProposal
+          ? "La copia quedó actualizada y la nueva edición fue enviada a moderación."
+          : "La copia quedó actualizada.",
+      });
       setReload((value) => value + 1);
     } catch (error) {
-      await handleMutationFailure(error, selected.id);
+      if (
+        error instanceof ApiRequestError &&
+        error.code === "GAME_EDITION_NOT_FOUND"
+      ) {
+        setMessage({
+          kind: "error",
+          text: "La edición no pertenece al juego de esta copia.",
+        });
+      } else {
+        await handleMutationFailure(error, selected.id);
+      }
     } finally {
       setPending(false);
     }
@@ -346,6 +444,7 @@ export function CopyInventoryWorkspace({
     setLoadState("loading");
     setQuery(draftQuery.trim());
     setMechanic(draftMechanic.trim());
+    setCategory(draftCategory.trim());
     setMinPlayers(nextMin);
     setMaxPlayers(nextMax);
     setReload((value) => value + 1);
@@ -354,10 +453,12 @@ export function CopyInventoryWorkspace({
   function clearFilters() {
     setDraftQuery("");
     setDraftMechanic("");
+    setDraftCategory("");
     setDraftMinPlayers("");
     setDraftMaxPlayers("");
     setQuery("");
     setMechanic("");
+    setCategory("");
     setMinPlayers(undefined);
     setMaxPlayers(undefined);
     setFilterError(null);
@@ -413,16 +514,91 @@ export function CopyInventoryWorkspace({
             <select
               name="gameEditionId"
               defaultValue=""
-              disabled={selectedGame === null}
+              disabled={selectedGame === null || proposeEdition}
             >
               <option value="">Sin edición específica</option>
               {selectedGame?.editions.map((edition) => (
                 <option key={edition.id} value={edition.id}>
                   {editionLabel(edition)}
+                  {edition.moderationStatus === "PENDING_REVIEW"
+                    ? " (pendiente de moderación)"
+                    : ""}
                 </option>
               ))}
             </select>
           </label>
+          {selectedGame?.visibility === "PUBLIC" &&
+          selectedGame.moderationStatus === "APPROVED" ? (
+            <div className="edition-proposal-toggle">
+              <button
+                className="secondary-action"
+                type="button"
+                aria-pressed={proposeEdition}
+                onClick={() => setProposeEdition((value) => !value)}
+              >
+                {proposeEdition
+                  ? "Usar una edición existente"
+                  : "Proponer una nueva edición"}
+              </button>
+              <small>
+                La copia se registra de inmediato. La nueva edición será visible
+                para todos cuando un moderador la apruebe.
+              </small>
+            </div>
+          ) : null}
+          {proposeEdition ? (
+            <fieldset className="edition-proposal-fields">
+              <legend>Nueva edición para moderación</legend>
+              <div className="field-grid">
+                <label>
+                  Nombre de la edición
+                  <input
+                    name="editionName"
+                    maxLength={180}
+                    placeholder="Ej. Deluxe"
+                    required
+                  />
+                </label>
+                <label>
+                  Número o versión
+                  <input name="editionNumber" maxLength={80} />
+                </label>
+                <label>
+                  Idioma
+                  <input
+                    name="editionLanguageCode"
+                    maxLength={12}
+                    placeholder="Ej. es"
+                  />
+                </label>
+                <label>
+                  Año de publicación
+                  <input
+                    name="editionPublicationYear"
+                    type="number"
+                    min={0}
+                    max={32767}
+                  />
+                </label>
+                <label>
+                  ISBN
+                  <input name="editionIsbn" maxLength={32} />
+                </label>
+                <label>
+                  SKU
+                  <input name="editionSku" maxLength={80} />
+                </label>
+                <label>
+                  UPC
+                  <input name="editionUpc" maxLength={32} />
+                </label>
+              </div>
+              <label>
+                Notas sobre la edición
+                <textarea name="editionNotes" maxLength={2000} rows={3} />
+              </label>
+            </fieldset>
+          ) : null}
           <div className="field-grid">
             <label>
               Condición
@@ -435,8 +611,16 @@ export function CopyInventoryWorkspace({
               </select>
             </label>
             <label>
-              Alias
-              <input name="alias" maxLength={140} />
+              Alias de esta copia (opcional)
+              <input
+                name="alias"
+                maxLength={140}
+                placeholder="Ej. La del club o copia firmada"
+              />
+              <small>
+                Sirve para distinguir este ejemplar; no cambia el juego
+                seleccionado.
+              </small>
             </label>
           </div>
           <label>
@@ -480,6 +664,14 @@ export function CopyInventoryWorkspace({
           <input
             value={draftMechanic}
             onChange={(event) => setDraftMechanic(event.target.value)}
+            placeholder="Ej. Dice rolling"
+          />
+        </label>
+        <label>
+          Categoría
+          <input
+            value={draftCategory}
+            onChange={(event) => setDraftCategory(event.target.value)}
             placeholder="Ej. Cooperativo"
           />
         </label>
@@ -503,6 +695,10 @@ export function CopyInventoryWorkspace({
             placeholder="Máximo"
           />
         </label>
+        <p className="player-filter-help">
+          Con un solo valor buscamos juegos que admitan exactamente esa
+          cantidad. Con ambos, el rango registrado debe coincidir completo.
+        </p>
         <label>
           Estado
           <select
@@ -553,6 +749,7 @@ export function CopyInventoryWorkspace({
           <h3>
             {query ||
             mechanic ||
+            category ||
             minPlayers !== undefined ||
             maxPlayers !== undefined
               ? "No hay coincidencias"
@@ -561,6 +758,7 @@ export function CopyInventoryWorkspace({
           <p>
             {query ||
             mechanic ||
+            category ||
             minPlayers !== undefined ||
             maxPlayers !== undefined
               ? "Prueba ampliando el rango o quitando alguno de los filtros."
@@ -571,41 +769,122 @@ export function CopyInventoryWorkspace({
 
       {copies.length > 0 ? (
         <div className="copy-grid">
-          {copies.map((copy) => (
-            <button
-              key={copy.id}
-              className="copy-card"
-              type="button"
-              onClick={() => void handleSelect(copy.id)}
-              aria-pressed={selected?.id === copy.id}
-            >
-              <strong>{copy.alias ?? copy.game.name}</strong>
-              <span>{copy.game.name}</span>
-              <small>
-                {copy.game.minPlayers === copy.game.maxPlayers
-                  ? `${copy.game.minPlayers} jugadores`
-                  : `${copy.game.minPlayers}–${copy.game.maxPlayers} jugadores`}
-              </small>
-              {copy.game.mechanics.length > 0 ? (
-                <span className="copy-mechanics">
-                  {copy.game.mechanics.join(" · ")}
+          {copies.map((copy) => {
+            const alias = copyAlias(copy);
+            return (
+              <button
+                key={copy.id}
+                className="copy-card"
+                type="button"
+                onClick={() => void handleSelect(copy.id)}
+                aria-pressed={selected?.id === copy.id}
+              >
+                <span className="copy-card-cover">
+                  {copy.game.coverMediaId ? (
+                    <ManagedImage
+                      key={`${copy.game.id}:${copy.game.coverMediaId}`}
+                      mediaId={copy.game.coverMediaId}
+                      variant="thumbnail"
+                      alt={`Portada de ${copy.game.name}`}
+                      width={320}
+                      height={400}
+                    />
+                  ) : (
+                    <span aria-hidden="true">Sin portada</span>
+                  )}
                 </span>
-              ) : null}
-              <small>
-                {conditionLabel(copy.condition)} ·{" "}
-                {copy.lifecycle === "ACTIVE" ? "Activa" : "Retirada"}
-              </small>
-            </button>
-          ))}
+
+                <span className="copy-card-body">
+                  <span className="copy-card-top">
+                    <span
+                      className={`copy-lifecycle ${copy.lifecycle === "ACTIVE" ? "copy-lifecycle-active" : "copy-lifecycle-exited"}`}
+                    >
+                      {copy.lifecycle === "ACTIVE" ? "En ludoteca" : "Retirada"}
+                    </span>
+                    <span className="copy-condition">
+                      {conditionLabel(copy.condition)}
+                    </span>
+                  </span>
+
+                  <span className="copy-card-title">{copy.game.name}</span>
+                  {alias ? (
+                    <span className="copy-alias">
+                      Alias: <strong>{alias}</strong>
+                    </span>
+                  ) : null}
+
+                  <span className="copy-card-facts">
+                    <span>{playerLabel(copy.game)}</span>
+                    {copy.edition ? (
+                      <span>
+                        {editionLabel(copy.edition)}
+                        {editionStatusLabel(copy.edition)
+                          ? ` · ${editionStatusLabel(copy.edition)}`
+                          : ""}
+                      </span>
+                    ) : (
+                      <span>Sin edición específica</span>
+                    )}
+                  </span>
+
+                  {copy.game.mechanics.length > 0 ? (
+                    <span className="taxonomy-group">
+                      <small>Mecánicas</small>
+                      <span className="mechanic-list">
+                        {copy.game.mechanics.map((mechanic) => (
+                          <span key={mechanic}>{mechanic}</span>
+                        ))}
+                      </span>
+                    </span>
+                  ) : null}
+                  {copy.game.categories.length > 0 ? (
+                    <span className="taxonomy-group">
+                      <small>Categorías</small>
+                      <span className="mechanic-list">
+                        {copy.game.categories.map((category) => (
+                          <span key={category}>{category}</span>
+                        ))}
+                      </span>
+                    </span>
+                  ) : null}
+
+                  <span className="copy-card-footer">
+                    <span>Ver detalle</span>
+                    <span aria-hidden="true">→</span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       ) : null}
 
       {selected ? (
-        <article className="copy-detail" aria-label="Detalle de la copia">
+        <article
+          key={selected.id}
+          className="copy-detail"
+          aria-label="Detalle de la copia"
+        >
           <header>
-            <div>
-              <div className="eyebrow">Detalle de copia</div>
-              <h3>{selected.alias ?? selected.game.name}</h3>
+            <div className="copy-detail-heading">
+              {selected.game.coverMediaId ? (
+                <ManagedImage
+                  mediaId={selected.game.coverMediaId}
+                  variant="thumbnail"
+                  alt={`Portada de ${selected.game.name}`}
+                  width={320}
+                  height={400}
+                />
+              ) : null}
+              <div>
+                <div className="eyebrow">Detalle de copia</div>
+                <h3>{selected.game.name}</h3>
+                {copyAlias(selected) ? (
+                  <p className="copy-detail-alias">
+                    Alias: <strong>{copyAlias(selected)}</strong>
+                  </p>
+                ) : null}
+              </div>
             </div>
             <span className="status-pill">
               {selected.lifecycle === "ACTIVE" ? "Activa" : "Retirada"}
@@ -620,7 +899,11 @@ export function CopyInventoryWorkspace({
               <dt>Edición</dt>
               <dd>
                 {selected.edition
-                  ? editionLabel(selected.edition)
+                  ? `${editionLabel(selected.edition)}${
+                      editionStatusLabel(selected.edition)
+                        ? ` · ${editionStatusLabel(selected.edition)}`
+                        : ""
+                    }`
                   : "Sin edición específica"}
               </dd>
             </div>
@@ -648,12 +931,126 @@ export function CopyInventoryWorkspace({
               <form className="stack-form" onSubmit={handleUpdate}>
                 <h4>Editar copia</h4>
                 <label>
-                  Alias
+                  Edición de esta copia
+                  <select
+                    name="editGameEditionId"
+                    value={editEditionId}
+                    disabled={editGame === null || editProposeEdition}
+                    onChange={(event) => setEditEditionId(event.target.value)}
+                  >
+                    <option value="">Sin edición específica</option>
+                    {selected.edition &&
+                    !editGame?.editions.some(
+                      (candidate) => candidate.id === selected.edition?.id,
+                    ) ? (
+                      <option value={selected.edition.id}>
+                        {editionLabel(selected.edition)}
+                        {editionStatusLabel(selected.edition)
+                          ? ` (${editionStatusLabel(selected.edition)})`
+                          : ""}
+                      </option>
+                    ) : null}
+                    {editGame?.editions.map((edition) => (
+                      <option key={edition.id} value={edition.id}>
+                        {editionLabel(edition)}
+                        {edition.moderationStatus === "PENDING_REVIEW"
+                          ? " (pendiente de moderación)"
+                          : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <small>
+                    Puedes cambiarla o elegir “Sin edición específica” sin
+                    perder el historial de la copia.
+                  </small>
+                </label>
+                {editGame?.visibility === "PUBLIC" &&
+                editGame.moderationStatus === "APPROVED" ? (
+                  <div className="edition-proposal-toggle">
+                    <button
+                      className="secondary-action"
+                      type="button"
+                      aria-pressed={editProposeEdition}
+                      onClick={() => setEditProposeEdition((value) => !value)}
+                    >
+                      {editProposeEdition
+                        ? "Usar una edición existente"
+                        : "Proponer una nueva edición para esta copia"}
+                    </button>
+                    <small>
+                      La edición quedará vinculada de inmediato a la copia y
+                      será pública cuando moderación la apruebe.
+                    </small>
+                  </div>
+                ) : null}
+                {editProposeEdition ? (
+                  <fieldset className="edition-proposal-fields">
+                    <legend>Nueva edición para moderación</legend>
+                    <div className="field-grid">
+                      <label>
+                        Nombre de la nueva edición
+                        <input
+                          name="editEditionName"
+                          maxLength={180}
+                          placeholder="Ej. Deluxe"
+                          required
+                        />
+                      </label>
+                      <label>
+                        Número o versión de la nueva edición
+                        <input name="editEditionNumber" maxLength={80} />
+                      </label>
+                      <label>
+                        Idioma de la nueva edición
+                        <input
+                          name="editEditionLanguageCode"
+                          maxLength={12}
+                          placeholder="Ej. es"
+                        />
+                      </label>
+                      <label>
+                        Año de publicación de la nueva edición
+                        <input
+                          name="editEditionPublicationYear"
+                          type="number"
+                          min={0}
+                          max={32767}
+                        />
+                      </label>
+                      <label>
+                        ISBN de la nueva edición
+                        <input name="editEditionIsbn" maxLength={32} />
+                      </label>
+                      <label>
+                        SKU de la nueva edición
+                        <input name="editEditionSku" maxLength={80} />
+                      </label>
+                      <label>
+                        UPC de la nueva edición
+                        <input name="editEditionUpc" maxLength={32} />
+                      </label>
+                    </div>
+                    <label>
+                      Notas sobre la nueva edición
+                      <textarea
+                        name="editEditionNotes"
+                        maxLength={2000}
+                        rows={3}
+                      />
+                    </label>
+                  </fieldset>
+                ) : null}
+                <label>
+                  Alias de esta copia (opcional)
                   <input
                     name="alias"
                     maxLength={140}
                     defaultValue={selected.alias ?? ""}
                   />
+                  <small>
+                    Sirve para identificar el ejemplar; el juego asociado no
+                    cambia.
+                  </small>
                 </label>
                 <label>
                   Condición

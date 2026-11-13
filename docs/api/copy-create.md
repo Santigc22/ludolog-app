@@ -45,6 +45,31 @@ La fuente de verdad es `CreateCopyRequestSchema`:
 condición por defecto es `GOOD`. Si se informa un precio, también debe enviarse
 una moneda de tres letras; la API la normaliza a mayúsculas.
 
+En lugar de `gameEditionId`, una copia de un juego público aprobado puede enviar
+`proposedEdition`. Ambas opciones son mutuamente excluyentes:
+
+```json
+{
+  "gameId": "4e145b05-1f8c-4b3f-a535-3c474bb55e95",
+  "alias": "Mi copia Deluxe",
+  "proposedEdition": {
+    "editionName": "Deluxe",
+    "editionNumber": "Kickstarter",
+    "languageCode": "es",
+    "publicationYear": 2024,
+    "isbn": null,
+    "sku": null,
+    "upc": null,
+    "notes": "Incluye componentes mejorados"
+  }
+}
+```
+
+La edición se crea como `PENDING_REVIEW`, se vincula inmediatamente a la
+copia y genera su caso de moderación en la misma transacción. Mientras está
+pendiente solo su autor puede seleccionarla en nuevas copias; al aprobarse pasa
+a estar disponible para todo el catálogo.
+
 El contrato es estricto. Rechaza `lifecycle`, `currentCollectionId`, datos de
 salida, creador, historial y auditoría. La API fija siempre:
 
@@ -90,11 +115,14 @@ transacción:
     "sourceName": "Tienda local",
     "notes": "Compra presencial",
     "createdAt": "2026-09-22T14:00:00.000Z"
-  }
+  },
+  "editionProposal": null
 }
 ```
 
 Sin adquisición, `acquisition` es `null`. Se envía `Cache-Control: no-store`.
+Cuando se propuso una edición, `editionProposal` informa `editionId`,
+`moderationCaseId` y estado `PENDING_REVIEW`; en los demás casos es `null`.
 
 ## Errores
 
@@ -110,10 +138,12 @@ Sin adquisición, `acquisition` es `null`. Se envía `Cache-Control: no-store`.
 | `404` | `COLLECTION_NOT_FOUND` | Ludoteca inexistente o no accesible |
 | `404` | `GAME_NOT_FOUND` | Juego inexistente, archivado o no visible |
 | `409` | `COLLECTION_ARCHIVED` | La ludoteca ya está archivada |
+| `409` | `GAME_EDITION_PROPOSAL_NOT_ALLOWED` | El juego no es público aprobado y no admite una propuesta global de edición |
 
 ## Atomicidad y pruebas
 
 `copy-create.test.ts` comprueba copia, intervalo abierto, adquisición y
-auditoría; condición por defecto; edición incompatible; juego privado ajeno;
+auditoría; condición por defecto; propuesta transaccional de edición; edición
+incompatible; juego privado ajeno;
 roles, permiso, autenticación y CSRF; campos controlados por el servidor y
 rollback completo cuando falla la inserción de auditoría.

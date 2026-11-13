@@ -8,6 +8,7 @@ const getCurrentSession = vi.fn();
 const logout = vi.fn();
 const getOwnProfile = vi.fn();
 const updateOwnProfile = vi.fn();
+const uploadOwnAvatar = vi.fn();
 
 vi.mock("../src/lib/api/auth", () => ({
   getCurrentSession: (...arguments_: unknown[]) =>
@@ -21,12 +22,19 @@ vi.mock("../src/lib/api/profile", () => ({
     updateOwnProfile(...arguments_),
 }));
 
+vi.mock("../src/lib/api/media", () => ({
+  imageFileError: () => null,
+  mediaUrl: (mediaId: string) => `http://localhost/media/${mediaId}`,
+  uploadOwnAvatar: (...arguments_: unknown[]) => uploadOwnAvatar(...arguments_),
+}));
+
 const profile = {
   userId: "4e145b05-1f8c-4b3f-a535-3c474bb55e95",
   username: "player_one",
   displayName: "Player One",
   bio: null,
   avatarUrl: null,
+  avatarMediaId: null,
   locationText: null,
   visibility: "PRIVATE" as const,
   createdAt: "2026-09-21T20:00:00.000Z",
@@ -64,6 +72,28 @@ describe("ProfileWorkspace", () => {
     expect(
       await screen.findByText("Tu perfil quedó actualizado."),
     ).toBeInTheDocument();
+  });
+
+  test("uploads an avatar and shows the managed image", async () => {
+    const avatarMediaId = "3297a863-b2f0-4746-bfec-e76517342f86";
+    uploadOwnAvatar.mockResolvedValue({
+      profile: { ...profile, avatarMediaId },
+    });
+    render(<ProfileWorkspace />);
+    await screen.findByText("@player_one");
+    const file = new File(["image"], "avatar.jpg", { type: "image/jpeg" });
+    fireEvent.change(screen.getByLabelText("Foto de perfil"), {
+      target: { files: [file] },
+    });
+    fireEvent.submit(
+      screen.getByRole("button", { name: "Subir avatar" }).closest("form")!,
+    );
+
+    await waitFor(() => expect(uploadOwnAvatar).toHaveBeenCalledWith(file));
+    expect(await screen.findByAltText("Avatar de Player One")).toHaveAttribute(
+      "src",
+      expect.stringContaining(avatarMediaId),
+    );
   });
 
   test("reacts to an expired private session", async () => {

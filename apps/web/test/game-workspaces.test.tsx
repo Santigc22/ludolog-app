@@ -8,15 +8,20 @@ import { ApiRequestError } from "../src/lib/api/client";
 const listGames = vi.fn();
 const createPrivateGame = vi.fn();
 const getGame = vi.fn();
+const updatePublicGame = vi.fn();
 const submitGameForModeration = vi.fn();
 const listCollections = vi.fn();
 const createCopy = vi.fn();
+const uploadGameCover = vi.fn();
+const imageFileError = vi.fn();
 
 vi.mock("../src/lib/api/games", () => ({
   listGames: (...arguments_: unknown[]) => listGames(...arguments_),
   createPrivateGame: (...arguments_: unknown[]) =>
     createPrivateGame(...arguments_),
   getGame: (...arguments_: unknown[]) => getGame(...arguments_),
+  updatePublicGame: (...arguments_: unknown[]) =>
+    updatePublicGame(...arguments_),
 }));
 
 vi.mock("../src/lib/api/moderation", () => ({
@@ -32,6 +37,12 @@ vi.mock("../src/lib/api/copies", () => ({
   createCopy: (...arguments_: unknown[]) => createCopy(...arguments_),
 }));
 
+vi.mock("../src/lib/api/media", () => ({
+  imageFileError: (...arguments_: unknown[]) => imageFileError(...arguments_),
+  mediaUrl: (mediaId: string) => `http://localhost/media/${mediaId}`,
+  uploadGameCover: (...arguments_: unknown[]) => uploadGameCover(...arguments_),
+}));
+
 const game = {
   id: "7f23ee38-31b5-45ec-ab1c-c1906bb1e456",
   name: "Azul",
@@ -40,6 +51,8 @@ const game = {
   minPlayers: 2,
   maxPlayers: 4,
   mechanics: ["Colocación de losetas"],
+  categories: ["Abstracto"],
+  coverMediaId: null,
   minDurationMinutes: 30,
   maxDurationMinutes: 45,
   minAge: 8,
@@ -49,6 +62,7 @@ const game = {
   visibility: "PUBLIC" as const,
   moderationStatus: "APPROVED" as const,
   isOwnedByViewer: false,
+  canManageCatalog: false,
   createdAt: "2026-09-21T20:00:00.000Z",
   updatedAt: "2026-09-21T20:00:00.000Z",
 };
@@ -82,6 +96,7 @@ const collection = {
 describe("GameCatalogWorkspace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    imageFileError.mockReturnValue(null);
     listGames.mockResolvedValue({
       games: [game, privateGame],
       pagination: { page: 1, pageSize: 12, totalItems: 13, totalPages: 2 },
@@ -101,6 +116,9 @@ describe("GameCatalogWorkspace", () => {
     fireEvent.change(screen.getByLabelText("Mecánica"), {
       target: { value: " losetas " },
     });
+    fireEvent.change(screen.getByLabelText("Categoría"), {
+      target: { value: " abstracto " },
+    });
     fireEvent.change(screen.getByLabelText("Jugadores desde"), {
       target: { value: "4" },
     });
@@ -113,6 +131,7 @@ describe("GameCatalogWorkspace", () => {
         expect.objectContaining({
           q: "azul",
           mechanic: "losetas",
+          category: "abstracto",
           minPlayers: 4,
           maxPlayers: 6,
           page: 1,
@@ -135,6 +154,18 @@ describe("GameCatalogWorkspace", () => {
         expect.objectContaining({ page: 2 }),
       ),
     );
+  });
+
+  test("keeps an approved game visually public for its original owner", async () => {
+    listGames.mockResolvedValueOnce({
+      games: [{ ...game, isOwnedByViewer: true }],
+      pagination: { page: 1, pageSize: 12, totalItems: 1, totalPages: 1 },
+    });
+    render(<GameCatalogWorkspace />);
+
+    const visibility = await screen.findByText("Catálogo público");
+    expect(visibility).toHaveClass("visibility-public");
+    expect(visibility).not.toHaveClass("visibility-private");
   });
 
   test("rejects an inverted player filter before requesting the API", async () => {
@@ -193,6 +224,104 @@ describe("GameCatalogWorkspace", () => {
       "href",
       `/catalogo/${privateGame.id}`,
     );
+    expect(uploadGameCover).not.toHaveBeenCalled();
+  });
+
+  test("creates a private game with its cover from the same form", async () => {
+    createPrivateGame.mockResolvedValue({
+      game: { ...privateGame, editions: [] },
+    });
+    uploadGameCover.mockResolvedValue({
+      coverMediaId: "3297a863-b2f0-4746-bfec-e76517342f86",
+    });
+    render(<GameCatalogWorkspace />);
+    await screen.findByText("Prototipo familiar");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Crear juego privado" }),
+    );
+    fireEvent.change(screen.getByLabelText("Nombre"), {
+      target: { value: "Feed the Kraken" },
+    });
+    const cover = new File(["cover"], "feed-the-kraken.webp", {
+      type: "image/webp",
+    });
+    fireEvent.change(screen.getByLabelText(/^Portada \(opcional\)/), {
+      target: { files: [cover] },
+    });
+    fireEvent.submit(
+      screen
+        .getByRole("button", { name: "Crear juego privado" })
+        .closest("form")!,
+    );
+
+    await waitFor(() =>
+      expect(uploadGameCover).toHaveBeenCalledWith(privateGame.id, cover),
+    );
+    expect(createPrivateGame).toHaveBeenCalledBefore(uploadGameCover);
+    expect(
+      await screen.findByText(/juego privado y su portada quedaron guardados/i),
+    ).toBeVisible();
+  });
+
+  test("keeps the created game accessible when its cover upload fails", async () => {
+    createPrivateGame.mockResolvedValue({
+      game: { ...privateGame, editions: [] },
+    });
+    uploadGameCover.mockRejectedValue(
+      new ApiRequestError(500, "INTERNAL_SERVER_ERROR"),
+    );
+    render(<GameCatalogWorkspace />);
+    await screen.findByText("Prototipo familiar");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Crear juego privado" }),
+    );
+    fireEvent.change(screen.getByLabelText("Nombre"), {
+      target: { value: "Mi juego" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Portada \(opcional\)/), {
+      target: {
+        files: [new File(["cover"], "cover.png", { type: "image/png" })],
+      },
+    });
+    fireEvent.submit(
+      screen
+        .getByRole("button", { name: "Crear juego privado" })
+        .closest("form")!,
+    );
+
+    expect(
+      await screen.findByText(/juego privado quedó creado, pero no pudimos/i),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: /Abrir juego/ })).toHaveAttribute(
+      "href",
+      `/catalogo/${privateGame.id}`,
+    );
+  });
+
+  test("validates the optional cover before creating the private game", async () => {
+    imageFileError.mockReturnValue("Usa una imagen JPG, PNG o WebP.");
+    render(<GameCatalogWorkspace />);
+    await screen.findByText("Prototipo familiar");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Crear juego privado" }),
+    );
+    fireEvent.change(screen.getByLabelText("Nombre"), {
+      target: { value: "No debe crearse todavía" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Portada \(opcional\)/), {
+      target: {
+        files: [new File(["invalid"], "cover.gif", { type: "image/gif" })],
+      },
+    });
+    fireEvent.submit(
+      screen
+        .getByRole("button", { name: "Crear juego privado" })
+        .closest("form")!,
+    );
+
+    expect(await screen.findByText(/Usa una imagen JPG/)).toBeVisible();
+    expect(createPrivateGame).not.toHaveBeenCalled();
+    expect(uploadGameCover).not.toHaveBeenCalled();
   });
 
   test("shows empty, retryable error, and unauthenticated creation states", async () => {
@@ -265,6 +394,7 @@ describe("GameDetailWorkspace", () => {
       pagination: { page: 1, pageSize: 100, totalItems: 1, totalPages: 1 },
     });
     createCopy.mockResolvedValue({ copy: { id: "copy-id" } });
+    updatePublicGame.mockResolvedValue({});
     getGame.mockResolvedValue({
       game: {
         ...game,
@@ -279,6 +409,8 @@ describe("GameDetailWorkspace", () => {
             sku: null,
             upc: null,
             notes: null,
+            moderationStatus: "APPROVED",
+            isOwnedByViewer: false,
             createdAt: game.createdAt,
           },
         ],
@@ -367,6 +499,74 @@ describe("GameDetailWorkspace", () => {
       await screen.findByText(/fue enviado a moderación/),
     ).toBeInTheDocument();
     expect(screen.getByText(/esperando la decisión/)).toBeInTheDocument();
+  });
+
+  test("uploads a cover for an owned private game", async () => {
+    const coverMediaId = "3297a863-b2f0-4746-bfec-e76517342f86";
+    getGame.mockResolvedValueOnce({ game: { ...privateGame, editions: [] } });
+    uploadGameCover.mockResolvedValue({ coverMediaId });
+    render(<GameDetailWorkspace gameId={privateGame.id} />);
+    await screen.findByText("Juego privado · Tuyo");
+    const file = new File(["image"], "cover.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Añadir portada"), {
+      target: { files: [file] },
+    });
+    fireEvent.submit(
+      screen.getByRole("button", { name: "Guardar portada" }).closest("form")!,
+    );
+
+    await waitFor(() =>
+      expect(uploadGameCover).toHaveBeenCalledWith(privateGame.id, file),
+    );
+    expect(await screen.findByAltText(/Portada de Prototipo/)).toHaveAttribute(
+      "src",
+      expect.stringContaining(coverMediaId),
+    );
+  });
+
+  test("lets a catalog manager edit public metadata and cover", async () => {
+    const manageableGame = { ...game, canManageCatalog: true, editions: [] };
+    getGame.mockResolvedValueOnce({ game: manageableGame });
+    updatePublicGame.mockResolvedValueOnce({
+      game: {
+        ...manageableGame,
+        name: "Azul corregido",
+        mechanics: ["Drafting"],
+      },
+    });
+    render(<GameDetailWorkspace gameId={game.id} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Editar ficha pública" }),
+    );
+    fireEvent.change(screen.getByLabelText("Nombre del juego"), {
+      target: { value: "Azul corregido" },
+    });
+    fireEvent.change(screen.getByLabelText("Mecánicas"), {
+      target: { value: "Drafting\nColección de conjuntos" },
+    });
+    fireEvent.change(screen.getByLabelText("Categorías"), {
+      target: { value: "Abstracto\nFamiliar" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    await waitFor(() =>
+      expect(updatePublicGame).toHaveBeenCalledWith(
+        game.id,
+        expect.objectContaining({
+          name: "Azul corregido",
+          minPlayers: 2,
+          maxPlayers: 4,
+          mechanics: ["Drafting", "Colección de conjuntos"],
+          categories: ["Abstracto", "Familiar"],
+        }),
+      ),
+    );
+    expect(await screen.findByText("Azul corregido")).toBeInTheDocument();
+    expect(
+      screen.getByText(/ficha pública quedó actualizada/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Añadir portada")).toBeInTheDocument();
   });
 
   test("handles no editions, not found, and retryable failures", async () => {

@@ -9,7 +9,9 @@ import type {
   GameModerationListQuery,
 } from "@ludoteca/contracts";
 
+import { ManagedImage } from "../media/managed-image";
 import { ApiRequestError } from "../../lib/api/client";
+import { imageFileError, uploadGameCover } from "../../lib/api/media";
 import {
   approveGameModerationCase,
   listGameModerationCases,
@@ -32,6 +34,10 @@ export function ModerationWorkspace() {
   const [cases, setCases] = useState<GameModerationCase[]>([]);
   const [status, setStatus] =
     useState<GameModerationListQuery["status"]>("PENDING_REVIEW");
+  const [approvedByUserId, setApprovedByUserId] = useState("");
+  const [reviewers, setReviewers] = useState<
+    GameModerationCase["submittedBy"][]
+  >([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [totalItems, setTotalItems] = useState(0);
@@ -41,10 +47,16 @@ export function ModerationWorkspace() {
 
   useEffect(() => {
     let active = true;
-    void listGameModerationCases({ status, page, pageSize: 12 })
+    void listGameModerationCases({
+      status,
+      page,
+      pageSize: 12,
+      approvedByUserId: approvedByUserId || undefined,
+    })
       .then((response) => {
         if (!active) return;
         setCases(response.moderationCases);
+        setReviewers(response.reviewers);
         setTotalPages(response.pagination.totalPages);
         setTotalItems(response.pagination.totalItems);
         setLoadState("ready");
@@ -61,7 +73,7 @@ export function ModerationWorkspace() {
     return () => {
       active = false;
     };
-  }, [page, reload, status]);
+  }, [approvedByUserId, page, reload, status]);
 
   async function handleApprove(moderationCase: GameModerationCase) {
     if (
@@ -122,6 +134,46 @@ export function ModerationWorkspace() {
     }
   }
 
+  async function handleCoverUpload(
+    event: FormEvent<HTMLFormElement>,
+    moderationCase: GameModerationCase,
+  ) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const file = (form.elements.namedItem("cover") as HTMLInputElement | null)
+      ?.files?.[0];
+    if (!file || file.size === 0) {
+      setMessage({ kind: "error", text: "Selecciona una imagen." });
+      return;
+    }
+    const validationError = imageFileError(file);
+    if (validationError) {
+      setMessage({ kind: "error", text: validationError });
+      return;
+    }
+    setPendingCaseId(moderationCase.id);
+    setMessage(null);
+    try {
+      const response = await uploadGameCover(moderationCase.game.id, file);
+      setCases((current) =>
+        current.map((item) =>
+          item.id === moderationCase.id
+            ? {
+                ...item,
+                game: { ...item.game, coverMediaId: response.coverMediaId },
+              }
+            : item,
+        ),
+      );
+      form.reset();
+      setMessage({ kind: "success", text: "La portada quedó actualizada." });
+    } catch {
+      setMessage({ kind: "error", text: "No pudimos guardar la portada." });
+    } finally {
+      setPendingCaseId(null);
+    }
+  }
+
   if (loadState === "forbidden") {
     return (
       <section className="collection-state centered-card">
@@ -150,23 +202,46 @@ export function ModerationWorkspace() {
             global.
           </p>
         </div>
-        <label className="moderation-status-filter">
-          Estado
-          <select
-            value={status}
-            onChange={(event) => {
-              setPage(1);
-              setLoadState("loading");
-              setStatus(
-                event.target.value as GameModerationListQuery["status"],
-              );
-            }}
-          >
-            <option value="PENDING_REVIEW">Pendientes</option>
-            <option value="APPROVED">Aprobados</option>
-            <option value="REJECTED">Rechazados</option>
-          </select>
-        </label>
+        <div className="moderation-filters">
+          <label className="moderation-status-filter">
+            Estado
+            <select
+              value={status}
+              onChange={(event) => {
+                const nextStatus = event.target
+                  .value as GameModerationListQuery["status"];
+                setPage(1);
+                setLoadState("loading");
+                setStatus(nextStatus);
+                if (nextStatus !== "APPROVED") setApprovedByUserId("");
+              }}
+            >
+              <option value="PENDING_REVIEW">Pendientes</option>
+              <option value="APPROVED">Aprobados</option>
+              <option value="REJECTED">Rechazados</option>
+            </select>
+          </label>
+          {status === "APPROVED" ? (
+            <label className="moderation-status-filter">
+              Aprobado por
+              <select
+                value={approvedByUserId}
+                onChange={(event) => {
+                  setPage(1);
+                  setLoadState("loading");
+                  setApprovedByUserId(event.target.value);
+                }}
+              >
+                <option value="">Todos</option>
+                {reviewers.map((reviewer) => (
+                  <option key={reviewer.id} value={reviewer.id}>
+                    {reviewer.displayName ?? `@${reviewer.username}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
       </header>
 
       {message ? (
@@ -229,6 +304,48 @@ export function ModerationWorkspace() {
                   </Link>
                 ) : null}
               </header>
+              <div className="moderation-cover-row">
+                <div className="moderation-cover">
+                  {moderationCase.game.coverMediaId ? (
+                    <ManagedImage
+                      mediaId={moderationCase.game.coverMediaId}
+                      variant="thumbnail"
+                      alt={`Portada de ${moderationCase.game.name}`}
+                      width={320}
+                      height={400}
+                    />
+                  ) : (
+                    <span aria-hidden="true">Sin portada</span>
+                  )}
+                </div>
+                {moderationCase.status === "PENDING_REVIEW" ? (
+                  <form
+                    className="media-upload"
+                    onSubmit={(event) =>
+                      void handleCoverUpload(event, moderationCase)
+                    }
+                  >
+                    <label>
+                      Portada para el catálogo
+                      <input
+                        name="cover"
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        required
+                      />
+                    </label>
+                    <small>JPG, PNG o WebP · máximo 8 MB.</small>
+                    <button
+                      className="secondary-action"
+                      disabled={pendingCaseId === moderationCase.id}
+                    >
+                      {moderationCase.game.coverMediaId
+                        ? "Cambiar portada"
+                        : "Añadir portada"}
+                    </button>
+                  </form>
+                ) : null}
+              </div>
               <p>
                 {moderationCase.game.description ??
                   "Sin descripción proporcionada."}
@@ -248,11 +365,31 @@ export function ModerationWorkspace() {
                       `@${moderationCase.submittedBy.username}`}
                   </dd>
                 </div>
+                {moderationCase.resolvedBy ? (
+                  <div>
+                    <dt>
+                      {moderationCase.status === "APPROVED"
+                        ? "Aprobado por"
+                        : "Resuelto por"}
+                    </dt>
+                    <dd>
+                      {moderationCase.resolvedBy.displayName ??
+                        `@${moderationCase.resolvedBy.username}`}
+                    </dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>Mecánicas</dt>
                   <dd>
                     {moderationCase.game.mechanics.join(", ") ||
                       "Sin mecánicas"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Categorías</dt>
+                  <dd>
+                    {moderationCase.game.categories.join(", ") ||
+                      "Sin categorías"}
                   </dd>
                 </div>
               </dl>

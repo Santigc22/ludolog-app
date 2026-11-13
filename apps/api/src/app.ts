@@ -9,6 +9,7 @@ import { collectionRouter } from "./modules/collection/collection.routes.js";
 import { copyRouter } from "./modules/copy/copy.routes.js";
 import { gameRouter } from "./modules/game/game.routes.js";
 import { healthRouter } from "./modules/health/health.routes.js";
+import { mediaRouter } from "./modules/media/media.routes.js";
 import { moderationRouter } from "./modules/moderation/moderation.routes.js";
 import { profileRouter } from "./modules/profile/profile.routes.js";
 
@@ -22,6 +23,7 @@ app.use("/api/v1", authRouter);
 app.use("/api/v1", collectionRouter);
 app.use("/api/v1", copyRouter);
 app.use("/api/v1", gameRouter);
+app.use("/api/v1", mediaRouter);
 app.use("/api/v1", moderationRouter);
 app.use("/api/v1", profileRouter);
 app.use("/api/v1", healthRouter);

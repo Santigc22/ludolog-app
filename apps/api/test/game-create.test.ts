@@ -96,6 +96,8 @@ const validBody = {
   minAge: 10,
   maxAge: 99,
   complexity: 2.75,
+  mechanics: ["Dice rolling", "Push your luck"],
+  categories: ["Solitario", "Robots"],
 };
 
 async function createRequest(
@@ -132,6 +134,8 @@ test("creates an immediately usable private game owned by the actor", async () =
     moderationStatus: "DRAFT",
     isOwnedByViewer: true,
     editions: [],
+    mechanics: validBody.mechanics,
+    categories: validBody.categories,
   });
 
   const persisted = await databasePool.query<{

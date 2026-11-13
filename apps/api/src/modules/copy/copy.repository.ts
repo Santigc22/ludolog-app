@@ -44,24 +44,43 @@ type AcquisitionRow = Readonly<{
   created_at: Date;
 }>;
 
+type EditionProposalResult = Readonly<{
+  editionId: string;
+  moderationCaseId: string;
+  status: "PENDING_REVIEW";
+}>;
+
 export type CreateCopyResult =
   | Readonly<{ kind: "collection_not_found" }>
   | Readonly<{ kind: "role_denied" }>
   | Readonly<{ kind: "collection_archived" }>
   | Readonly<{ kind: "game_not_found" }>
   | Readonly<{ kind: "edition_not_found" }>
-  | Readonly<{ kind: "success"; copy: Copy; acquisition: Acquisition | null }>;
+  | Readonly<{ kind: "edition_proposal_not_allowed" }>
+  | Readonly<{
+      kind: "success";
+      copy: Copy;
+      acquisition: Acquisition | null;
+      editionProposal: EditionProposalResult | null;
+    }>;
 
 type CopyListRow = CopyRow &
   Readonly<{
     game_name: string;
+    game_cover_media_id: string | null;
     game_min_players: number;
     game_max_players: number;
     game_mechanics: string[];
+    game_categories: string[];
     edition_name: string | null;
     edition_number: string | null;
     language_code: string | null;
     edition_publication_year: number | null;
+    edition_moderation_status_code:
+      | "PENDING_REVIEW"
+      | "APPROVED"
+      | "REJECTED"
+      | null;
   }>;
 
 type CopyHistoryRow = Readonly<{
@@ -80,7 +99,13 @@ export type UpdateCopyResult =
   | Readonly<{ kind: "copy_not_found" }>
   | Readonly<{ kind: "role_denied" }>
   | Readonly<{ kind: "collection_archived" }>
-  | Readonly<{ kind: "success"; copy: Copy }>;
+  | Readonly<{ kind: "edition_not_found" }>
+  | Readonly<{ kind: "edition_proposal_not_allowed" }>
+  | Readonly<{
+      kind: "success";
+      copy: Copy;
+      editionProposal: EditionProposalResult | null;
+    }>;
 
 export type MoveCopyResult =
   | Readonly<{ kind: "copy_not_found" }>
@@ -145,9 +170,11 @@ function mapCopyListItem(row: CopyListRow): CopyListItem {
     game: {
       id: row.game_id,
       name: row.game_name,
+      coverMediaId: row.game_cover_media_id,
       minPlayers: row.game_min_players,
       maxPlayers: row.game_max_players,
       mechanics: row.game_mechanics,
+      categories: row.game_categories,
     },
     edition:
       row.game_edition_id === null
@@ -158,6 +185,7 @@ function mapCopyListItem(row: CopyListRow): CopyListItem {
             editionNumber: row.edition_number,
             languageCode: row.language_code,
             publicationYear: row.edition_publication_year,
+            moderationStatus: row.edition_moderation_status_code ?? "APPROVED",
           },
   };
 }
@@ -208,8 +236,12 @@ export async function createCopyInCollection(
       return rollback(client, { kind: "collection_archived" } as const);
     }
 
-    const game = await client.query<{ id: string }>(
-      `SELECT id
+    const game = await client.query<{
+      id: string;
+      visibility_code: "PRIVATE" | "PUBLIC";
+      moderation_status_code: string;
+    }>(
+      `SELECT id, visibility_code, moderation_status_code
        FROM games
        WHERE id = $1
          AND archived_at IS NULL
@@ -228,18 +260,110 @@ export async function createCopyInCollection(
       [input.gameId, userId],
     );
 
-    if (game.rows[0] === undefined) {
+    const selectedGame = game.rows[0];
+    if (selectedGame === undefined) {
       return rollback(client, { kind: "game_not_found" } as const);
     }
 
+    let editionId = input.gameEditionId ?? null;
+    let editionProposal: EditionProposalResult | null = null;
+
     if (input.gameEditionId != null) {
       const edition = await client.query<{ id: string }>(
-        `SELECT id FROM game_editions WHERE id = $1 AND game_id = $2`,
-        [input.gameEditionId, input.gameId],
+        `SELECT id
+         FROM game_editions
+         WHERE id = $1
+           AND game_id = $2
+           AND (
+             moderation_status_code = 'APPROVED'
+             OR (
+               moderation_status_code = 'PENDING_REVIEW'
+               AND created_by_user_id = $3
+             )
+           )`,
+        [input.gameEditionId, input.gameId, userId],
       );
       if (edition.rows[0] === undefined) {
         return rollback(client, { kind: "edition_not_found" } as const);
       }
+    }
+
+    if (input.proposedEdition !== undefined) {
+      if (
+        selectedGame.visibility_code !== "PUBLIC" ||
+        selectedGame.moderation_status_code !== "APPROVED"
+      ) {
+        return rollback(client, {
+          kind: "edition_proposal_not_allowed",
+        } as const);
+      }
+      const proposal = input.proposedEdition;
+      const insertedEdition = await client.query<{ id: string }>(
+        `INSERT INTO game_editions (
+           game_id, edition_name, edition_number, language_code,
+           publication_year, isbn, sku, upc, notes,
+           moderation_status_code, created_by_user_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9,
+           'PENDING_REVIEW', $10
+         )
+         RETURNING id`,
+        [
+          input.gameId,
+          proposal.editionName,
+          proposal.editionNumber ?? null,
+          proposal.languageCode ?? null,
+          proposal.publicationYear ?? null,
+          proposal.isbn ?? null,
+          proposal.sku ?? null,
+          proposal.upc ?? null,
+          proposal.notes ?? null,
+          userId,
+        ],
+      );
+      editionId = insertedEdition.rows[0]!.id;
+      const insertedCase = await client.query<{ id: string }>(
+        `INSERT INTO moderation_cases (
+           game_edition_id, current_status_code, submitted_by_user_id,
+           submission_note
+         ) VALUES ($1, 'PENDING_REVIEW', $2, $3)
+         RETURNING id`,
+        [
+          editionId,
+          userId,
+          `Nueva edición propuesta al registrar una copia: ${proposal.editionName}`,
+        ],
+      );
+      const moderationCaseId = insertedCase.rows[0]!.id;
+      await client.query(
+        `INSERT INTO moderation_actions (
+           moderation_case_id, actor_user_id, from_status_code,
+           to_status_code, reason
+         ) VALUES ($1, $2, NULL, 'PENDING_REVIEW', $3)`,
+        [moderationCaseId, userId, proposal.notes ?? null],
+      );
+      await client.query(
+        `INSERT INTO audit_logs (
+           actor_user_id, action, resource_type, resource_id,
+           after_state, context
+         ) VALUES ($1, 'game_edition.moderation_submitted', 'GAME_EDITION', $2,
+                   $3::jsonb, $4::jsonb)`,
+        [
+          userId,
+          editionId,
+          JSON.stringify({
+            ...proposal,
+            gameId: input.gameId,
+            moderationStatus: "PENDING_REVIEW",
+          }),
+          JSON.stringify({ moderationCaseId, collectionId }),
+        ],
+      );
+      editionProposal = {
+        editionId,
+        moderationCaseId,
+        status: "PENDING_REVIEW",
+      };
     }
 
     const insertedCopy = await client.query<CopyRow>(
@@ -253,7 +377,7 @@ export async function createCopyInCollection(
                  created_at, updated_at`,
       [
         input.gameId,
-        input.gameEditionId ?? null,
+        editionId,
         collectionId,
         input.condition,
         input.alias ?? null,
@@ -322,12 +446,13 @@ export async function createCopyInCollection(
           collectionId,
           historyId,
           acquisitionId: acquisition?.id ?? null,
+          editionProposal,
         }),
       ],
     );
 
     await client.query("COMMIT");
-    return { kind: "success", copy, acquisition };
+    return { kind: "success", copy, acquisition, editionProposal };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -342,6 +467,7 @@ const copyListColumns = `
   copies.condition_code, copies.alias, copies.notes,
   copies.exit_reason_code, copies.exited_at, copies.created_by_user_id,
   copies.created_at, copies.updated_at, games.name AS game_name,
+  games.cover_media_id AS game_cover_media_id,
   games.min_players AS game_min_players,
   games.max_players AS game_max_players,
   ARRAY(
@@ -351,9 +477,17 @@ const copyListColumns = `
     WHERE game_mechanics.game_id = games.id
     ORDER BY lower(mechanics.name), mechanics.id
   ) AS game_mechanics,
+  ARRAY(
+    SELECT categories.name
+    FROM game_categories
+    INNER JOIN categories ON categories.id = game_categories.category_id
+    WHERE game_categories.game_id = games.id
+    ORDER BY lower(categories.name), categories.id
+  ) AS game_categories,
   game_editions.edition_name, game_editions.edition_number,
   game_editions.language_code,
-  game_editions.publication_year AS edition_publication_year`;
+  game_editions.publication_year AS edition_publication_year,
+  game_editions.moderation_status_code AS edition_moderation_status_code`;
 
 export async function findCopiesForCollection(
   collectionId: string,
@@ -400,15 +534,33 @@ export async function findCopiesForCollection(
         AND filtered_mechanics.name ILIKE $${values.push(`%${escapeLikePattern(query.mechanic)}%`)} ESCAPE '\\'
     )`);
   }
+  if (query.category !== undefined) {
+    filters.push(`EXISTS (
+      SELECT 1
+      FROM game_categories AS filtered_game_categories
+      INNER JOIN categories AS filtered_categories
+        ON filtered_categories.id = filtered_game_categories.category_id
+      WHERE filtered_game_categories.game_id = games.id
+        AND filtered_categories.name ILIKE $${values.push(`%${escapeLikePattern(query.category)}%`)} ESCAPE '\\'
+    )`);
+  }
   if (query.minPlayers !== undefined && query.maxPlayers !== undefined) {
     filters.push(
       `games.min_players = $${values.push(query.minPlayers)}`,
       `games.max_players = $${values.push(query.maxPlayers)}`,
     );
   } else if (query.minPlayers !== undefined) {
-    filters.push(`games.max_players >= $${values.push(query.minPlayers)}`);
+    const playerCountParameter = values.push(query.minPlayers);
+    filters.push(
+      `games.min_players <= $${playerCountParameter}`,
+      `games.max_players >= $${playerCountParameter}`,
+    );
   } else if (query.maxPlayers !== undefined) {
-    filters.push(`games.max_players <= $${values.push(query.maxPlayers)}`);
+    const playerCountParameter = values.push(query.maxPlayers);
+    filters.push(
+      `games.min_players <= $${playerCountParameter}`,
+      `games.max_players >= $${playerCountParameter}`,
+    );
   }
   const offset = (query.page - 1) * query.pageSize;
   const listValues = [...values, query.pageSize, offset];
@@ -576,6 +728,126 @@ export async function updateCopyMetadata(
 
     const assignments: string[] = [];
     const values: unknown[] = [];
+    let editionProposal: EditionProposalResult | null = null;
+    let nextEditionId: string | null | undefined;
+
+    if (input.proposedEdition !== undefined) {
+      const eligibleGame = await client.query<{ id: string }>(
+        `SELECT id
+         FROM games
+         WHERE id = $1
+           AND archived_at IS NULL
+           AND visibility_code = 'PUBLIC'
+           AND classification_code IN ('OFFICIAL', 'COMMUNITY')
+           AND moderation_status_code = 'APPROVED'`,
+        [current.game_id],
+      );
+      if (eligibleGame.rows[0] === undefined) {
+        return rollback(client, {
+          kind: "edition_proposal_not_allowed",
+        } as const);
+      }
+
+      const proposal = input.proposedEdition;
+      const insertedEdition = await client.query<{ id: string }>(
+        `INSERT INTO game_editions (
+           game_id, edition_name, edition_number, language_code,
+           publication_year, isbn, sku, upc, notes,
+           moderation_status_code, created_by_user_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7, $8, $9,
+           'PENDING_REVIEW', $10
+         )
+         RETURNING id`,
+        [
+          current.game_id,
+          proposal.editionName,
+          proposal.editionNumber ?? null,
+          proposal.languageCode ?? null,
+          proposal.publicationYear ?? null,
+          proposal.isbn ?? null,
+          proposal.sku ?? null,
+          proposal.upc ?? null,
+          proposal.notes ?? null,
+          userId,
+        ],
+      );
+      nextEditionId = insertedEdition.rows[0]!.id;
+      const insertedCase = await client.query<{ id: string }>(
+        `INSERT INTO moderation_cases (
+           game_edition_id, current_status_code, submitted_by_user_id,
+           submission_note
+         ) VALUES ($1, 'PENDING_REVIEW', $2, $3)
+         RETURNING id`,
+        [
+          nextEditionId,
+          userId,
+          `Nueva edición propuesta al editar una copia: ${proposal.editionName}`,
+        ],
+      );
+      const moderationCaseId = insertedCase.rows[0]!.id;
+      await client.query(
+        `INSERT INTO moderation_actions (
+           moderation_case_id, actor_user_id, from_status_code,
+           to_status_code, reason
+         ) VALUES ($1, $2, NULL, 'PENDING_REVIEW', $3)`,
+        [moderationCaseId, userId, proposal.notes ?? null],
+      );
+      await client.query(
+        `INSERT INTO audit_logs (
+           actor_user_id, action, resource_type, resource_id,
+           after_state, context
+         ) VALUES ($1, 'game_edition.moderation_submitted', 'GAME_EDITION', $2,
+                   $3::jsonb, $4::jsonb)`,
+        [
+          userId,
+          nextEditionId,
+          JSON.stringify({
+            ...proposal,
+            gameId: current.game_id,
+            moderationStatus: "PENDING_REVIEW",
+          }),
+          JSON.stringify({
+            moderationCaseId,
+            collectionId: current.authorized_collection_id,
+            copyId,
+          }),
+        ],
+      );
+      editionProposal = {
+        editionId: nextEditionId,
+        moderationCaseId,
+        status: "PENDING_REVIEW",
+      };
+    } else if (Object.hasOwn(input, "gameEditionId")) {
+      nextEditionId = input.gameEditionId ?? null;
+      if (nextEditionId !== null) {
+        const edition = await client.query<{ id: string }>(
+          `SELECT id
+           FROM game_editions
+           WHERE id = $1
+             AND game_id = $2
+             AND (
+               moderation_status_code = 'APPROVED'
+               OR (
+                 moderation_status_code = 'PENDING_REVIEW'
+                 AND created_by_user_id = $3
+               )
+               OR id = $4
+             )`,
+          [nextEditionId, current.game_id, userId, current.game_edition_id],
+        );
+        if (edition.rows[0] === undefined) {
+          return rollback(client, { kind: "edition_not_found" } as const);
+        }
+      }
+    }
+
+    if (nextEditionId !== undefined) {
+      values.push(nextEditionId);
+      assignments.push(`game_edition_id = $${values.length}`);
+    }
+
     const fields = [
       ["condition", "condition_code"],
       ["alias", "alias"],
@@ -621,12 +893,13 @@ export async function updateCopyMetadata(
         JSON.stringify({
           collectionId: current.authorized_collection_id,
           changedFields: Object.keys(input),
+          editionProposal,
         }),
       ],
     );
 
     await client.query("COMMIT");
-    return { kind: "success", copy: after };
+    return { kind: "success", copy: after, editionProposal };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

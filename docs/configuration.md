@@ -12,6 +12,8 @@ monorepo. El archivo está ignorado por Git y se crea a partir de
 | `API_PORT` | Puerto HTTP entre 1 y 65535 |
 | `WEB_ORIGIN` | Origen HTTP(S) permitido para la aplicación web |
 | `DATABASE_URL` | Conexión PostgreSQL privada de Express |
+| `MEDIA_STORAGE_PATH` | Directorio local para avatares y portadas procesadas |
+| `MEDIA_MAX_UPLOAD_BYTES` | Tamaño máximo del body de una imagen; 8 MiB por defecto |
 
 La API carga y valida estas variables al importar su configuración. Los
 mensajes de error identifican el nombre inválido, pero no imprimen el valor ni
@@ -36,3 +38,5 @@ API: http://localhost:3001/api/v1
 El puerto de PostgreSQL forma parte de `DATABASE_URL` y puede variar por
 máquina. En el entorno local actual PostgreSQL 18 utiliza `5433`.
 
+Consulta [Imágenes locales](local-media-storage.md) para almacenamiento,
+procesamiento, privacidad y copias de seguridad.

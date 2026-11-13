@@ -26,6 +26,7 @@ directorio. Como mínimo debe indicar:
 | `POST` | `/api/v1/auth/logout` | Revoca la sesión actual | Sí + CSRF |
 | `GET` | `/api/v1/profiles/me` | Consulta el perfil propio | Sí |
 | `PATCH` | `/api/v1/profiles/me` | Actualiza campos permitidos del perfil propio | Sí + CSRF |
+| `POST` | `/api/v1/profiles/me/avatar` | Guarda o reemplaza el avatar procesado | Sí + permiso + CSRF |
 | `POST` | `/api/v1/collections` | Crea una ludoteca personal y su membresía `OWNER` | Sí + permiso + CSRF |
 | `GET` | `/api/v1/collections` | Lista las ludotecas de las que el usuario es miembro | Sí |
 | `GET` | `/api/v1/collections/:collectionId` | Consulta una ludoteca aplicando visibilidad y membresía | Opcional para públicas activas |
@@ -33,15 +34,21 @@ directorio. Como mínimo debe indicar:
 | `POST` | `/api/v1/collections/:collectionId/archive` | Archiva lógicamente una ludoteca | Sí + permiso + `OWNER` + CSRF |
 | `GET` | `/api/v1/games` | Lista y busca los juegos visibles para el actor | Opcional para incluir privados propios |
 | `GET` | `/api/v1/games/:gameId` | Consulta un juego visible y sus ediciones | Opcional para privados propios |
+| `PATCH` | `/api/v1/games/:gameId` | Administra una ficha pública aprobada | `CONTENT_MANAGER` o `ADMIN` + CSRF |
 | `POST` | `/api/v1/games` | Crea un juego privado propiedad del usuario | Sí + permiso + CSRF |
+| `POST` | `/api/v1/games/:gameId/cover` | Guarda o reemplaza la portada del juego | Propietario privado o moderación + CSRF |
+| `GET` | `/api/v1/media/:mediaId` | Sirve una imagen aplicando su visibilidad | Opcional según el recurso |
 | `POST` | `/api/v1/games/:gameId/moderation-submissions` | Propone un juego privado propio para publicación global | Sí + permiso + CSRF |
 | `GET` | `/api/v1/moderation/games` | Lista la cola de propuestas por estado | Sí + `moderation.view` |
 | `POST` | `/api/v1/moderation/cases/:caseId/approve` | Publica la ficha existente como juego comunitario global | Sí + `moderation.approve` + CSRF |
 | `POST` | `/api/v1/moderation/cases/:caseId/reject` | Devuelve la propuesta al autor con un motivo | Sí + `moderation.reject` + CSRF |
+| `GET` | `/api/v1/moderation/editions` | Lista propuestas de ediciones por estado | Sí + `moderation.view` |
+| `POST` | `/api/v1/moderation/edition-cases/:caseId/approve` | Publica una edición propuesta para todos los usuarios | Sí + `moderation.approve` + CSRF |
+| `POST` | `/api/v1/moderation/edition-cases/:caseId/reject` | Rechaza una edición propuesta con un motivo | Sí + `moderation.reject` + CSRF |
 | `POST` | `/api/v1/collections/:collectionId/copies` | Registra una copia activa con historial, adquisición opcional y auditoría | Sí + permiso + rol + CSRF |
 | `GET` | `/api/v1/collections/:collectionId/copies` | Lista copias actuales o históricas de una ludoteca accesible | Sí + membresía |
 | `GET` | `/api/v1/copies/:copyId` | Consulta una copia, su historial y adquisiciones | Sí + membresía autorizante |
-| `PATCH` | `/api/v1/copies/:copyId` | Edita alias, notas y condición sin alterar lifecycle | Sí + permiso + rol + CSRF |
+| `PATCH` | `/api/v1/copies/:copyId` | Edita edición, alias, notas y condición sin alterar lifecycle | Sí + permiso + rol + CSRF |
 | `POST` | `/api/v1/copies/:copyId/move` | Mueve la misma copia y conserva su historial | Sí + permiso + rol en origen/destino + CSRF |
 | `POST` | `/api/v1/copies/:copyId/exit` | Retira una copia sin borrar su historial ni adquisiciones | Sí + permiso + rol + CSRF |
 
@@ -56,9 +63,12 @@ los contratos detallados. La creación de ludotecas se documenta en
 El catálogo visible, sus filtros y ordenamientos se documentan en
 [game-list.md](./game-list.md), y el detalle con ediciones en
 [game-detail.md](./game-detail.md). La creación privada se documenta en
-[game-create-private.md](./game-create-private.md).
+[game-create-private.md](./game-create-private.md), y la administración de
+fichas públicas en [game-update-public.md](./game-update-public.md).
 El flujo de propuesta, cola, aprobación y rechazo está en
 [game-moderation.md](./game-moderation.md).
+Las cargas y lecturas de avatares y portadas se detallan en
+[media.md](./media.md).
 El registro transaccional de copias se documenta en
 [copy-create.md](./copy-create.md).
 El listado y detalle de copias se documentan en

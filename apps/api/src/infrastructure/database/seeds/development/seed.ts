@@ -7,6 +7,7 @@ import {
   developmentCollections,
   developmentGameEditions,
   developmentGames,
+  developmentModerationCases,
   developmentUserPassword,
   developmentUsers,
 } from "./data.js";
@@ -105,6 +106,9 @@ async function seedGames(client: PoolClient): Promise<void> {
       ],
     );
 
+    await client.query("DELETE FROM game_mechanics WHERE game_id = $1", [
+      game.id,
+    ]);
     for (const mechanicName of game.mechanics) {
       await client.query(
         `INSERT INTO mechanics (name)
@@ -121,6 +125,26 @@ async function seedGames(client: PoolClient): Promise<void> {
         [game.id, mechanicName],
       );
     }
+
+    await client.query("DELETE FROM game_categories WHERE game_id = $1", [
+      game.id,
+    ]);
+    for (const categoryName of game.categories) {
+      await client.query(
+        `INSERT INTO categories (name)
+         VALUES ($1)
+         ON CONFLICT DO NOTHING`,
+        [categoryName],
+      );
+      await client.query(
+        `INSERT INTO game_categories (game_id, category_id)
+         SELECT $1, categories.id
+         FROM categories
+         WHERE lower(categories.name) = lower($2)
+         ON CONFLICT DO NOTHING`,
+        [game.id, categoryName],
+      );
+    }
   }
 }
 
@@ -134,6 +158,78 @@ async function seedGameEditions(client: PoolClient): Promise<void> {
          edition_name = EXCLUDED.edition_name,
          language_code = EXCLUDED.language_code`,
       [edition.id, edition.gameId, edition.editionName, edition.languageCode],
+    );
+  }
+}
+
+async function seedModerationHistory(client: PoolClient): Promise<void> {
+  for (const moderationCase of developmentModerationCases) {
+    await client.query(
+      `INSERT INTO moderation_cases (
+         id, game_id, current_status_code, submitted_by_user_id,
+         assigned_to_user_id, submission_note, resolution_note,
+         created_at, updated_at, closed_at
+       ) VALUES ($1, $2, 'APPROVED', $3, $4, $5, $6, $7, $8, $8)
+       ON CONFLICT (id) DO UPDATE SET
+         game_id = EXCLUDED.game_id,
+         current_status_code = 'APPROVED',
+         submitted_by_user_id = EXCLUDED.submitted_by_user_id,
+         assigned_to_user_id = EXCLUDED.assigned_to_user_id,
+         submission_note = EXCLUDED.submission_note,
+         resolution_note = EXCLUDED.resolution_note,
+         created_at = EXCLUDED.created_at,
+         updated_at = EXCLUDED.updated_at,
+         closed_at = EXCLUDED.closed_at`,
+      [
+        moderationCase.id,
+        moderationCase.gameId,
+        moderationCase.submittedByUserId,
+        moderationCase.approvedByUserId,
+        "Ficha incorporada al catálogo inicial.",
+        "Aprobado como parte del catálogo inicial.",
+        moderationCase.submittedAt,
+        moderationCase.approvedAt,
+      ],
+    );
+    await client.query(
+      `INSERT INTO moderation_actions (
+         id, moderation_case_id, actor_user_id, from_status_code,
+         to_status_code, reason, created_at
+       ) VALUES ($1, $2, $3, 'DRAFT', 'PENDING_REVIEW', $4, $5)
+       ON CONFLICT (id) DO UPDATE SET
+         moderation_case_id = EXCLUDED.moderation_case_id,
+         actor_user_id = EXCLUDED.actor_user_id,
+         from_status_code = EXCLUDED.from_status_code,
+         to_status_code = EXCLUDED.to_status_code,
+         reason = EXCLUDED.reason,
+         created_at = EXCLUDED.created_at`,
+      [
+        moderationCase.submissionActionId,
+        moderationCase.id,
+        moderationCase.submittedByUserId,
+        "Ficha incorporada al catálogo inicial.",
+        moderationCase.submittedAt,
+      ],
+    );
+    await client.query(
+      `INSERT INTO moderation_actions (
+         id, moderation_case_id, actor_user_id, from_status_code,
+         to_status_code, reason, created_at
+       ) VALUES ($1, $2, $3, 'PENDING_REVIEW', 'APPROVED', $4, $5)
+       ON CONFLICT (id) DO UPDATE SET
+         moderation_case_id = EXCLUDED.moderation_case_id,
+         actor_user_id = EXCLUDED.actor_user_id,
+         from_status_code = EXCLUDED.from_status_code,
+         to_status_code = EXCLUDED.to_status_code,
+         reason = EXCLUDED.reason,
+         created_at = EXCLUDED.created_at`,
+      [
+        moderationCase.approvalActionId,
+        moderationCase.id,
+        moderationCase.approvedByUserId,
+        "Aprobado como parte del catálogo inicial.",
+        moderationCase.approvedAt,
+      ],
     );
   }
 }
@@ -163,6 +259,10 @@ async function verifySeededRows(client: PoolClient): Promise<void> {
       developmentUsers.map(({ id }) => id),
     ],
   );
+  const moderationCases = await client.query<{ count: string }>(
+    "SELECT COUNT(*)::text AS count FROM moderation_cases WHERE id = ANY($1::uuid[])",
+    [developmentModerationCases.map(({ id }) => id)],
+  );
 
   if (games.rows[0]?.count !== String(developmentGames.length)) {
     throw new Error("Development game seed verification failed");
@@ -180,6 +280,11 @@ async function verifySeededRows(client: PoolClient): Promise<void> {
   if (members.rows[0]?.count !== String(developmentCollectionMembers.length)) {
     throw new Error("Development collection member seed verification failed");
   }
+  if (
+    moderationCases.rows[0]?.count !== String(developmentModerationCases.length)
+  ) {
+    throw new Error("Development moderation seed verification failed");
+  }
 }
 
 export async function seedDevelopmentCatalog(
@@ -194,6 +299,7 @@ export async function seedDevelopmentCatalog(
     await seedCollections(client);
     await seedGames(client);
     await seedGameEditions(client);
+    await seedModerationHistory(client);
     await verifySeededRows(client);
     await client.query("COMMIT");
   } catch (error) {

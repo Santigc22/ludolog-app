@@ -42,6 +42,7 @@ Consulta la cookie de sesión y devuelve el usuario actual según
     "email": "player@example.com",
     "username": "player_one",
     "status": "ACTIVE",
+    "roles": ["USER"],
     "profile": {
       "displayName": "Player One",
       "visibility": "PRIVATE"
@@ -49,6 +50,12 @@ Consulta la cookie de sesión y devuelve el usuario actual según
   }
 }
 ```
+
+`roles` contiene los roles globales vigentes (`USER`, `MODERATOR`,
+`CONTENT_MANAGER` o `ADMIN`). Se consulta en cada lectura de sesión para que
+los cambios de rol no queden congelados en la cookie. La API continúa
+comprobando permisos en cada endpoint protegido; este dato permite adaptar la
+navegación, pero no sustituye la autorización del servidor.
 
 Una sesión válida renueva su vencimiento por inactividad sin superar el límite
 absoluto de 30 días.
@@ -76,4 +83,4 @@ Un token CSRF ausente o incorrecto produce `403 CSRF_TOKEN_INVALID`.
 
 La integración cubre login correcto, errores no enumerables, limitación de
 intentos, sesión ausente, válida, expirada y revocada, renovación por actividad,
-validación CSRF y logout.
+roles vigentes, validación CSRF y logout.

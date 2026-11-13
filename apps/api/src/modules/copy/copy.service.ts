@@ -7,6 +7,7 @@ import type {
   NormalizedExitCopyRequest,
   NormalizedMoveCopyRequest,
   NormalizedUpdateCopyRequest,
+  UpdateCopyResponse,
 } from "@ludoteca/contracts";
 
 import { ApplicationError } from "../../errors/application-error.js";
@@ -27,7 +28,11 @@ export async function createCopyForUser(
   const result = await createCopyInCollection(collectionId, userId, input);
 
   if (result.kind === "success") {
-    return { copy: result.copy, acquisition: result.acquisition };
+    return {
+      copy: result.copy,
+      acquisition: result.acquisition,
+      editionProposal: result.editionProposal,
+    };
   }
 
   const errors = {
@@ -55,6 +60,12 @@ export async function createCopyForUser(
       code: "GAME_EDITION_NOT_FOUND",
       message: "The edition does not belong to the selected game.",
       statusCode: 400,
+    },
+    edition_proposal_not_allowed: {
+      code: "GAME_EDITION_PROPOSAL_NOT_ALLOWED",
+      message:
+        "New public editions can only be proposed for approved public games.",
+      statusCode: 409,
     },
   } as const;
 
@@ -100,7 +111,7 @@ export async function updateCopyForUser(
   copyId: string,
   userId: string,
   input: NormalizedUpdateCopyRequest,
-): Promise<CopyDetailResponse> {
+): Promise<UpdateCopyResponse> {
   const result = await updateCopyMetadata(copyId, userId, input);
 
   if (result.kind !== "success") {
@@ -120,6 +131,17 @@ export async function updateCopyForUser(
         message: "A copy in an archived collection cannot be edited.",
         statusCode: 409,
       },
+      edition_not_found: {
+        code: "GAME_EDITION_NOT_FOUND",
+        message: "The edition does not belong to the copy's game.",
+        statusCode: 400,
+      },
+      edition_proposal_not_allowed: {
+        code: "GAME_EDITION_PROPOSAL_NOT_ALLOWED",
+        message:
+          "New public editions can only be proposed for approved public games.",
+        statusCode: 409,
+      },
     } as const;
     throw new ApplicationError(errors[result.kind]);
   }
@@ -128,7 +150,7 @@ export async function updateCopyForUser(
   if (copy === null) {
     throw new Error("Updated copy disappeared before response mapping");
   }
-  return { copy };
+  return { copy, editionProposal: result.editionProposal };
 }
 
 export async function moveCopyForUser(

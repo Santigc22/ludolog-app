@@ -16,6 +16,13 @@ export const ApiEnvironmentSchema = z.object({
         value.startsWith("postgresql://") || value.startsWith("postgres://"),
       "DATABASE_URL must use the PostgreSQL protocol",
     ),
+  MEDIA_STORAGE_PATH: z.string().trim().min(1).default(".data/media"),
+  MEDIA_MAX_UPLOAD_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1_024)
+    .max(25 * 1_024 * 1_024)
+    .default(8 * 1_024 * 1_024),
 });
 
 export type ApiEnvironment = z.infer<typeof ApiEnvironmentSchema>;

@@ -33,6 +33,7 @@ let currentCopyId: string;
 let exitedCopyId: string;
 let movedCopyId: string;
 let mechanicId: string;
+let categoryId: string;
 
 async function register(label: string) {
   const suffix = randomUUID().slice(0, 8);
@@ -92,7 +93,6 @@ beforeAll(async () => {
        ($1, $2, 'OWNER'), ($1, $3, 'VIEWER'), ($4, $2, 'OWNER')`,
     [collectionId, ownerId, viewerId, destinationCollectionId],
   );
-
   const game = await databasePool.query<{ id: string }>(
     `INSERT INTO games (
        name, min_players, max_players, classification_code,
@@ -101,6 +101,14 @@ beforeAll(async () => {
      RETURNING id`,
   );
   gameId = game.rows[0]!.id;
+  const category = await databasePool.query<{ id: string }>(
+    `INSERT INTO categories (name) VALUES ('Abstract read test') RETURNING id`,
+  );
+  categoryId = category.rows[0]!.id;
+  await databasePool.query(
+    `INSERT INTO game_categories (game_id, category_id) VALUES ($1, $2)`,
+    [gameId, categoryId],
+  );
   const mechanic = await databasePool.query<{ id: string }>(
     `INSERT INTO mechanics (name) VALUES ('Tile placement read test') RETURNING id`,
   );
@@ -182,6 +190,9 @@ afterAll(async () => {
   ]);
   await databasePool.query("DELETE FROM games WHERE id = $1", [gameId]);
   await databasePool.query("DELETE FROM mechanics WHERE id = $1", [mechanicId]);
+  await databasePool.query("DELETE FROM categories WHERE id = $1", [
+    categoryId,
+  ]);
   await databasePool.query(
     "DELETE FROM collections WHERE id = ANY($1::uuid[])",
     [[collectionId, destinationCollectionId]],
@@ -239,10 +250,18 @@ test("supports explicit exited and full-history filters with stable pagination",
 
 test("filters the collection inventory by game data and player capacity", async () => {
   const matching = await fetch(
-    listUrl("?q=readable&mechanic=tile&minPlayers=2&maxPlayers=4"),
+    listUrl(
+      "?q=readable&mechanic=tile&category=abstract&minPlayers=2&maxPlayers=4",
+    ),
     { headers: { origin: apiConfig.webOrigin, cookie: ownerCookie } },
   );
   const outsideRange = await fetch(listUrl("?minPlayers=5"), {
+    headers: { origin: apiConfig.webOrigin, cookie: ownerCookie },
+  });
+  const unsupportedOne = await fetch(listUrl("?minPlayers=1"), {
+    headers: { origin: apiConfig.webOrigin, cookie: ownerCookie },
+  });
+  const supportedThreeFromUpperField = await fetch(listUrl("?maxPlayers=3"), {
     headers: { origin: apiConfig.webOrigin, cookie: ownerCookie },
   });
   const exactTwo = await fetch(listUrl("?minPlayers=2&maxPlayers=2"), {
@@ -253,6 +272,12 @@ test("filters the collection inventory by game data and player capacity", async 
   });
   const matchingBody = CopyListResponseSchema.parse(await matching.json());
   const outsideBody = CopyListResponseSchema.parse(await outsideRange.json());
+  const unsupportedOneBody = CopyListResponseSchema.parse(
+    await unsupportedOne.json(),
+  );
+  const supportedThreeBody = CopyListResponseSchema.parse(
+    await supportedThreeFromUpperField.json(),
+  );
   const exactTwoBody = CopyListResponseSchema.parse(await exactTwo.json());
   const missingOneToFourBody = CopyListResponseSchema.parse(
     await missingOneToFour.json(),
@@ -263,8 +288,13 @@ test("filters the collection inventory by game data and player capacity", async 
     minPlayers: 2,
     maxPlayers: 4,
     mechanics: ["Tile placement read test"],
+    categories: ["Abstract read test"],
   });
   expect(outsideBody.copies).toEqual([]);
+  expect(unsupportedOneBody.copies).toEqual([]);
+  expect(supportedThreeBody.copies.map(({ id }) => id)).toEqual([
+    currentCopyId,
+  ]);
   expect(exactTwoBody.copies).toEqual([]);
   expect(missingOneToFourBody.copies).toEqual([]);
 });

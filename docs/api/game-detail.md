@@ -38,7 +38,10 @@ El contrato fuente es `GameDetailResponseSchema`:
     "classification": "OFFICIAL",
     "visibility": "PUBLIC",
     "moderationStatus": "APPROVED",
+    "mechanics": ["Gestión de recursos", "Negociación"],
+    "categories": ["Civilización", "Económico"],
     "isOwnedByViewer": false,
+    "canManageCatalog": false,
     "createdAt": "2026-09-22T00:00:00.000Z",
     "updatedAt": "2026-09-22T00:00:00.000Z",
     "editions": [
@@ -52,6 +55,8 @@ El contrato fuente es `GameDetailResponseSchema`:
         "sku": null,
         "upc": null,
         "notes": null,
+        "moderationStatus": "APPROVED",
+        "isOwnedByViewer": false,
         "createdAt": "2026-09-22T00:00:00.000Z"
       }
     ]
@@ -62,6 +67,16 @@ El contrato fuente es `GameDetailResponseSchema`:
 Un juego sin ediciones devuelve `"editions": []`. Las ediciones se ordenan por
 fecha de creación e ID, pertenecen necesariamente al juego solicitado y se
 obtienen mediante agregación en la misma consulta; no existe patrón N+1.
+
+El detalle incluye todas las ediciones `APPROVED`. Si hay sesión, también
+incluye las ediciones `PENDING_REVIEW` propuestas por ese usuario para que
+pueda utilizarlas en otras copias propias. Las propuestas pendientes de otros
+usuarios y las rechazadas no se exponen en el catálogo. `moderationStatus`
+informa el estado e `isOwnedByViewer` identifica al autor actual.
+
+`canManageCatalog` indica si la sesión actual posee
+`catalog.game.manage`. La interfaz usa esta capacidad para mostrar la edición
+de fichas públicas sin inferir permisos en el cliente.
 
 La respuesta usa `Cache-Control: no-store` y no incluye configuraciones de
 resultados, personas, editoriales ni datos de copias aún no implementados.

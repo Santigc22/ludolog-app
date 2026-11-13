@@ -27,7 +27,10 @@ La nota es opcional. La respuesta `201` usa
 
 Requiere `moderation.view`. `status` admite `PENDING_REVIEW`, `APPROVED` o
 `REJECTED`. La respuesta `200` usa `GameModerationListResponseSchema` e incluye
-la ficha, el autor, las notas y la paginación.
+la ficha, el autor, el usuario que resolvió el caso, las notas, la lista de
+aprobadores disponibles y la paginación. Cuando `status=APPROVED`, el parámetro
+opcional `approvedByUserId` limita los resultados a las aprobaciones de ese
+usuario.
 
 ## Aprobar
 
@@ -63,3 +66,39 @@ para el mismo juego.
 
 `moderation.test.ts` cubre permisos, propuesta duplicada, aprobación, rechazo,
 visibilidad resultante y preservación de una copia existente.
+
+## Moderación de ediciones
+
+Una edición nueva se propone al registrar una copia mediante
+`POST /api/v1/collections/:collectionId/copies`. Solo se admiten propuestas
+para juegos públicos aprobados. La edición, la copia y el caso de moderación se
+crean en una misma transacción: la copia queda registrada inmediatamente y la
+edición comienza en `PENDING_REVIEW`.
+
+Mientras está pendiente, la edición solo aparece en el detalle del juego para
+su autor. La copia que originó la propuesta conserva siempre la referencia,
+incluso si moderación la rechaza.
+
+### Consultar la cola de ediciones
+
+`GET /api/v1/moderation/editions?status=PENDING_REVIEW&page=1&pageSize=20`
+
+Requiere `moderation.view`. `status` admite `PENDING_REVIEW`, `APPROVED` o
+`REJECTED`. La respuesta usa `GameEditionModerationListResponseSchema` e
+incluye los datos de la edición, el juego al que pertenece, el autor, la
+decisión y la paginación.
+
+### Aprobar o rechazar una edición
+
+- `POST /api/v1/moderation/edition-cases/:caseId/approve`
+- `POST /api/v1/moderation/edition-cases/:caseId/reject`
+
+Aprobar requiere `moderation.approve` y hace que la edición quede disponible
+para todos los usuarios. Rechazar requiere `moderation.reject` y el mismo body
+con `reason` usado para juegos. Ambas escrituras exigen origen web, CSRF y se
+ejecutan de forma transaccional junto con la acción y la auditoría.
+
+Cada caso referencia exactamente un juego o una edición. Los índices parciales
+impiden que un mismo recurso tenga dos casos pendientes. `moderation.test.ts`
+cubre el ciclo completo desde el registro de una copia con edición propuesta
+hasta su aprobación y visibilidad pública.

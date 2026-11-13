@@ -4,6 +4,8 @@ import type {
   GameListQuery,
   GameListResponse,
   NormalizedCreatePrivateGameRequest,
+  NormalizedUpdatePublicGameRequest,
+  UpdatePublicGameResponse,
 } from "@ludoteca/contracts";
 
 import { ApplicationError } from "../../errors/application-error.js";
@@ -11,6 +13,7 @@ import {
   createPrivateGame,
   findVisibleGameDetail,
   findVisibleGames,
+  updatePublicGame,
 } from "./game.repository.js";
 
 export async function createPrivateGameForUser(
@@ -18,6 +21,34 @@ export async function createPrivateGameForUser(
   input: NormalizedCreatePrivateGameRequest,
 ): Promise<CreatePrivateGameResponse> {
   return { game: await createPrivateGame(userId, input) };
+}
+
+export async function updatePublicGameForManager(
+  gameId: string,
+  editorUserId: string,
+  input: NormalizedUpdatePublicGameRequest,
+): Promise<UpdatePublicGameResponse> {
+  const result = await updatePublicGame(gameId, editorUserId, input);
+  if (result.kind === "not_found") {
+    throw new ApplicationError({
+      code: "PUBLIC_GAME_NOT_FOUND",
+      message: "The approved public game does not exist.",
+      statusCode: 404,
+    });
+  }
+  if (result.kind === "invalid_range") {
+    throw new ApplicationError({
+      code: "GAME_RANGE_INVALID",
+      message: "The game range is invalid.",
+      statusCode: 400,
+      details: {
+        fields: {
+          [result.field]: ["The maximum cannot be lower than the minimum."],
+        },
+      },
+    });
+  }
+  return { game: result.game };
 }
 
 export async function listGamesForViewer(

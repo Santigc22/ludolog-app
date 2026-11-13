@@ -3,7 +3,10 @@ import { once } from "node:events";
 import { createServer, type Server } from "node:http";
 
 import {
+  CreateCopyResponseSchema,
   CreatePrivateGameResponseSchema,
+  EditionModerationCaseResponseSchema,
+  EditionModerationListResponseSchema,
   ErrorResponseSchema,
   GameDetailResponseSchema,
   GameModerationCaseResponseSchema,
@@ -107,6 +110,26 @@ async function resolveCase(
   });
 }
 
+async function resolveEditionCase(
+  caseId: string,
+  decision: "approve" | "reject",
+  body: Record<string, unknown> = {},
+) {
+  return fetch(
+    `${baseUrl}/api/v1/moderation/edition-cases/${caseId}/${decision}`,
+    {
+      method: "POST",
+      headers: {
+        origin: apiConfig.webOrigin,
+        cookie: moderator.cookie,
+        "content-type": "application/json",
+        "x-csrf-token": moderator.csrfToken,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
 beforeAll(async () => {
   server = createServer(app);
   server.listen(0, "127.0.0.1");
@@ -149,9 +172,21 @@ afterAll(async () => {
     "DELETE FROM audit_logs WHERE actor_user_id = ANY($1::uuid[])",
     [[owner.id, moderator.id, ordinaryUser.id]],
   );
+  await databasePool.query(
+    "DELETE FROM acquisitions WHERE acquired_by_user_id = $1",
+    [owner.id],
+  );
+  await databasePool.query(
+    "DELETE FROM copy_collection_history WHERE changed_by_user_id = $1",
+    [owner.id],
+  );
   await databasePool.query("DELETE FROM copies WHERE created_by_user_id = $1", [
     owner.id,
   ]);
+  await databasePool.query(
+    "DELETE FROM game_editions WHERE game_id = ANY($1::uuid[])",
+    [gameIds],
+  );
   await databasePool.query("DELETE FROM games WHERE id = ANY($1::uuid[])", [
     gameIds,
   ]);
@@ -220,6 +255,8 @@ test("submits, approves and publishes the same game without losing its copy", as
   );
   expect(approved.moderationCase).toMatchObject({
     status: "APPROVED",
+    assignedToUserId: moderator.id,
+    resolvedBy: { id: moderator.id },
     game: {
       id: game.id,
       classification: "COMMUNITY",
@@ -227,6 +264,30 @@ test("submits, approves and publishes the same game without losing its copy", as
       moderationStatus: "APPROVED",
     },
   });
+
+  const approvedQueueResponse = await fetch(
+    `${baseUrl}/api/v1/moderation/games?status=APPROVED&approvedByUserId=${moderator.id}`,
+    { headers: { origin: apiConfig.webOrigin, cookie: moderator.cookie } },
+  );
+  expect(approvedQueueResponse.status).toBe(200);
+  const approvedQueue = GameModerationListResponseSchema.parse(
+    await approvedQueueResponse.json(),
+  );
+  expect(
+    approvedQueue.moderationCases.some(
+      ({ id }) => id === submitted.moderationCase.id,
+    ),
+  ).toBe(true);
+  expect(approvedQueue.reviewers.map(({ id }) => id)).toContain(moderator.id);
+
+  const filteredOutResponse = await fetch(
+    `${baseUrl}/api/v1/moderation/games?status=APPROVED&approvedByUserId=${ordinaryUser.id}`,
+    { headers: { origin: apiConfig.webOrigin, cookie: moderator.cookie } },
+  );
+  const filteredOut = GameModerationListResponseSchema.parse(
+    await filteredOutResponse.json(),
+  );
+  expect(filteredOut.moderationCases).toHaveLength(0);
 
   const repeatedApproval = await resolveCase(
     submitted.moderationCase.id,
@@ -291,4 +352,108 @@ test("rejects with a reason while keeping the proposal private for its owner", a
       .moderationStatus,
   ).toBe("REJECTED");
   expect(anonymousDetail.status).toBe(404);
+});
+
+test("moderates a proposed edition without delaying its physical copy", async () => {
+  const insertedGame = await databasePool.query<{ id: string }>(
+    `INSERT INTO games (
+       name, min_players, max_players, classification_code,
+       visibility_code, moderation_status_code
+     ) VALUES ($1, 5, 11, 'COMMUNITY', 'PUBLIC', 'APPROVED')
+     RETURNING id`,
+    [`Feed the Kraken ${randomUUID().slice(0, 6)}`],
+  );
+  const publicGameId = insertedGame.rows[0]!.id;
+  gameIds.push(publicGameId);
+
+  const creation = await fetch(
+    `${baseUrl}/api/v1/collections/${collectionId}/copies`,
+    {
+      method: "POST",
+      headers: {
+        origin: apiConfig.webOrigin,
+        cookie: owner.cookie,
+        "content-type": "application/json",
+        "x-csrf-token": owner.csrfToken,
+      },
+      body: JSON.stringify({
+        gameId: publicGameId,
+        proposedEdition: {
+          editionName: "Deluxe",
+          languageCode: "es",
+          notes: "Componentes mejorados",
+        },
+      }),
+    },
+  );
+  expect(creation.status).toBe(201);
+  const created = CreateCopyResponseSchema.parse(await creation.json());
+  expect(created.editionProposal?.status).toBe("PENDING_REVIEW");
+  expect(created.copy.gameEditionId).toBe(created.editionProposal?.editionId);
+
+  const anonymousBefore = await fetch(
+    `${baseUrl}/api/v1/games/${publicGameId}`,
+    { headers: { origin: apiConfig.webOrigin } },
+  );
+  const ownerBefore = await fetch(`${baseUrl}/api/v1/games/${publicGameId}`, {
+    headers: { origin: apiConfig.webOrigin, cookie: owner.cookie },
+  });
+  expect(
+    GameDetailResponseSchema.parse(await anonymousBefore.json()).game.editions,
+  ).toHaveLength(0);
+  expect(
+    GameDetailResponseSchema.parse(await ownerBefore.json()).game.editions[0],
+  ).toMatchObject({
+    editionName: "Deluxe",
+    moderationStatus: "PENDING_REVIEW",
+    isOwnedByViewer: true,
+  });
+
+  const queueResponse = await fetch(`${baseUrl}/api/v1/moderation/editions`, {
+    headers: { origin: apiConfig.webOrigin, cookie: moderator.cookie },
+  });
+  expect(queueResponse.status).toBe(200);
+  const queue = EditionModerationListResponseSchema.parse(
+    await queueResponse.json(),
+  );
+  const pendingCase = queue.moderationCases.find(
+    ({ id }) => id === created.editionProposal?.moderationCaseId,
+  );
+  expect(pendingCase).toMatchObject({
+    status: "PENDING_REVIEW",
+    game: { id: publicGameId },
+    edition: { editionName: "Deluxe" },
+  });
+
+  const approval = await resolveEditionCase(pendingCase!.id, "approve");
+  expect(approval.status).toBe(200);
+  const approved = EditionModerationCaseResponseSchema.parse(
+    await approval.json(),
+  );
+  expect(approved.moderationCase).toMatchObject({
+    status: "APPROVED",
+    resolvedBy: { id: moderator.id },
+    edition: { moderationStatus: "APPROVED" },
+  });
+
+  const anonymousAfter = await fetch(
+    `${baseUrl}/api/v1/games/${publicGameId}`,
+    { headers: { origin: apiConfig.webOrigin } },
+  );
+  expect(
+    GameDetailResponseSchema.parse(await anonymousAfter.json()).game
+      .editions[0],
+  ).toMatchObject({
+    id: created.editionProposal?.editionId,
+    editionName: "Deluxe",
+    moderationStatus: "APPROVED",
+  });
+
+  const copy = await databasePool.query<{ game_edition_id: string | null }>(
+    "SELECT game_edition_id FROM copies WHERE id = $1",
+    [created.copy.id],
+  );
+  expect(copy.rows[0]?.game_edition_id).toBe(
+    created.editionProposal?.editionId,
+  );
 });

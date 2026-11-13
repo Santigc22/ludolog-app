@@ -6,6 +6,7 @@ import {
   CopyDetailResponseSchema,
   ErrorResponseSchema,
   RegisterResponseSchema,
+  UpdateCopyResponseSchema,
 } from "@ludoteca/contracts";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
@@ -27,6 +28,7 @@ let outsider: Identity;
 let collectionId: string;
 let archivedCollectionId: string;
 let gameId: string;
+let existingEditionId: string;
 let copyId: string;
 let archivedCopyId: string;
 
@@ -94,6 +96,14 @@ beforeAll(async () => {
      RETURNING id`,
   );
   gameId = game.rows[0]!.id;
+  const edition = await databasePool.query<{ id: string }>(
+    `INSERT INTO game_editions (
+       game_id, edition_name, language_code, moderation_status_code
+     ) VALUES ($1, 'Retail edition', 'en', 'APPROVED')
+     RETURNING id`,
+    [gameId],
+  );
+  existingEditionId = edition.rows[0]!.id;
   const copies = await databasePool.query<{ id: string; alias: string }>(
     `INSERT INTO copies (
        game_id, current_collection_id, lifecycle_code, condition_code,
@@ -119,6 +129,31 @@ beforeAll(async () => {
 afterAll(async () => {
   const userIds = [owner.id, manager.id, viewer.id, outsider.id];
   await databasePool.query(
+    `DELETE FROM moderation_actions
+     WHERE moderation_case_id IN (
+       SELECT moderation_cases.id
+       FROM moderation_cases
+       INNER JOIN game_editions
+         ON game_editions.id = moderation_cases.game_edition_id
+       WHERE game_editions.game_id = $1
+     )`,
+    [gameId],
+  );
+  await databasePool.query(
+    `DELETE FROM moderation_cases
+     WHERE game_edition_id IN (
+       SELECT id FROM game_editions WHERE game_id = $1
+     )`,
+    [gameId],
+  );
+  await databasePool.query(
+    `DELETE FROM audit_logs
+     WHERE resource_id IN (
+       SELECT id FROM game_editions WHERE game_id = $1
+     )`,
+    [gameId],
+  );
+  await databasePool.query(
     "DELETE FROM audit_logs WHERE resource_id = ANY($1::uuid[])",
     [[copyId, archivedCopyId]],
   );
@@ -128,6 +163,9 @@ afterAll(async () => {
   );
   await databasePool.query("DELETE FROM copies WHERE id = ANY($1::uuid[])", [
     [copyId, archivedCopyId],
+  ]);
+  await databasePool.query("DELETE FROM game_editions WHERE game_id = $1", [
+    gameId,
   ]);
   await databasePool.query("DELETE FROM games WHERE id = $1", [gameId]);
   await databasePool.query(
@@ -216,6 +254,88 @@ test("allows a manager to clear optional metadata", async () => {
   expect(body.copy.alias).toBeNull();
   expect(body.copy.notes).toBeNull();
   expect(body.copy.condition).toBe("DAMAGED");
+});
+
+test("assigns, removes, and replaces an edition without recreating the copy", async () => {
+  const assignedResponse = await updateRequest(
+    copyId,
+    { gameEditionId: existingEditionId },
+    owner,
+  );
+  const assigned = UpdateCopyResponseSchema.parse(
+    await assignedResponse.json(),
+  );
+  expect(assignedResponse.status).toBe(200);
+  expect(assigned.copy).toMatchObject({
+    id: copyId,
+    gameEditionId: existingEditionId,
+  });
+  expect(assigned.copy.edition?.editionName).toBe("Retail edition");
+  expect(assigned.editionProposal).toBeNull();
+
+  const clearedResponse = await updateRequest(
+    copyId,
+    { gameEditionId: null },
+    manager,
+  );
+  const cleared = UpdateCopyResponseSchema.parse(await clearedResponse.json());
+  expect(clearedResponse.status).toBe(200);
+  expect(cleared.copy.id).toBe(copyId);
+  expect(cleared.copy.gameEditionId).toBeNull();
+  expect(cleared.copy.edition).toBeNull();
+
+  const proposedResponse = await updateRequest(
+    copyId,
+    {
+      proposedEdition: {
+        editionName: "Deluxe",
+        editionNumber: "Kickstarter",
+        languageCode: "es",
+      },
+    },
+    owner,
+  );
+  const proposed = UpdateCopyResponseSchema.parse(
+    await proposedResponse.json(),
+  );
+  expect(proposedResponse.status).toBe(200);
+  expect(proposed.copy.id).toBe(copyId);
+  expect(proposed.copy.gameEditionId).toBe(proposed.editionProposal?.editionId);
+  expect(proposed.copy.edition).toMatchObject({
+    editionName: "Deluxe",
+    editionNumber: "Kickstarter",
+    moderationStatus: "PENDING_REVIEW",
+  });
+  expect(proposed.editionProposal?.status).toBe("PENDING_REVIEW");
+
+  const persisted = await databasePool.query<{
+    game_edition_id: string | null;
+    case_status: string | null;
+  }>(
+    `SELECT copies.game_edition_id,
+            moderation_cases.current_status_code AS case_status
+     FROM copies
+     LEFT JOIN moderation_cases
+       ON moderation_cases.game_edition_id = copies.game_edition_id
+     WHERE copies.id = $1`,
+    [copyId],
+  );
+  expect(persisted.rows[0]).toEqual({
+    game_edition_id: proposed.editionProposal?.editionId,
+    case_status: "PENDING_REVIEW",
+  });
+});
+
+test("rejects an edition that is not available for the copy's game", async () => {
+  const response = await updateRequest(
+    copyId,
+    { gameEditionId: randomUUID() },
+    owner,
+  );
+  expect(response.status).toBe(400);
+  expect(ErrorResponseSchema.parse(await response.json()).error.code).toBe(
+    "GAME_EDITION_NOT_FOUND",
+  );
 });
 
 test("rejects lifecycle operations and empty updates", async () => {

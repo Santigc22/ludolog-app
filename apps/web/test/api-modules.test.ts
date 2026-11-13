@@ -20,7 +20,13 @@ import {
   updateCollection,
 } from "../src/lib/api/collections";
 import { getOwnProfile, updateOwnProfile } from "../src/lib/api/profile";
-import { createPrivateGame, getGame, listGames } from "../src/lib/api/games";
+import { uploadGameCover, uploadOwnAvatar } from "../src/lib/api/media";
+import {
+  createPrivateGame,
+  getGame,
+  listGames,
+  updatePublicGame,
+} from "../src/lib/api/games";
 import {
   createCopy,
   exitCopy,
@@ -30,8 +36,11 @@ import {
   updateCopy,
 } from "../src/lib/api/copies";
 import {
+  approveEditionModerationCase,
   approveGameModerationCase,
+  listEditionModerationCases,
   listGameModerationCases,
+  rejectEditionModerationCase,
   rejectGameModerationCase,
   submitGameForModeration,
 } from "../src/lib/api/moderation";
@@ -82,6 +91,30 @@ describe("typed API modules", () => {
       "profiles/me",
       expect.anything(),
       expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
+  test("uploads images as protected raw request bodies", async () => {
+    const file = new File(["image"], "cover.webp", { type: "image/webp" });
+    await uploadOwnAvatar(file);
+    await uploadGameCover("game with spaces", file);
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "profiles/me/avatar",
+      expect.anything(),
+      {
+        method: "POST",
+        headers: {
+          "content-type": "image/webp",
+          "x-csrf-token": "csrf-token",
+        },
+        body: file,
+      },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "games/game%20with%20spaces/cover",
+      expect.anything(),
+      expect.objectContaining({ body: file }),
     );
   });
 
@@ -136,12 +169,23 @@ describe("typed API modules", () => {
 
   test("builds catalog reads and a protected private-game write", async () => {
     await listGames();
-    await listGames({ q: " Azul ", page: 2, pageSize: 5, sort: "newest" });
+    await listGames({
+      q: " Azul ",
+      category: " Abstracto ",
+      page: 2,
+      pageSize: 5,
+      sort: "newest",
+    });
     await getGame("id with spaces");
     await createPrivateGame({
       name: "Prototype",
       minPlayers: 1,
       maxPlayers: 4,
+    });
+    await updatePublicGame("id with spaces", {
+      name: " Azul corregido ",
+      mechanics: [" Losetas "],
+      categories: [" Abstracto "],
     });
 
     expect(apiFetchMock).toHaveBeenCalledWith(
@@ -150,7 +194,7 @@ describe("typed API modules", () => {
       { cache: "no-store" },
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "games?page=2&pageSize=5&sort=newest&q=Azul",
+      "games?page=2&pageSize=5&sort=newest&q=Azul&category=Abstracto",
       expect.anything(),
       { cache: "no-store" },
     );
@@ -167,6 +211,19 @@ describe("typed API modules", () => {
         headers: expect.objectContaining({ "x-csrf-token": "csrf-token" }),
       }),
     );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "games/id%20with%20spaces",
+      expect.anything(),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          name: "Azul corregido",
+          mechanics: ["Losetas"],
+          categories: ["Abstracto"],
+        }),
+        headers: expect.objectContaining({ "x-csrf-token": "csrf-token" }),
+      }),
+    );
   });
 
   test("builds copy reads and protected lifecycle operations", async () => {
@@ -176,9 +233,17 @@ describe("typed API modules", () => {
     const copyId = "930a9d0e-b4f4-4299-bcd1-e51be4d85c13";
 
     await listCopies(collectionId);
+    await listCopies(collectionId, { category: " Abstracto " });
     await createCopy(collectionId, { gameId });
+    await createCopy(collectionId, {
+      gameId,
+      proposedEdition: { editionName: " Deluxe ", languageCode: " es " },
+    });
     await getCopy(copyId);
-    await updateCopy(copyId, { condition: "DAMAGED" });
+    await updateCopy(copyId, {
+      condition: "DAMAGED",
+      proposedEdition: { editionName: " Deluxe ", languageCode: " es " },
+    });
     await moveCopy(copyId, { destinationCollectionId });
     await exitCopy(copyId, { reason: "DAMAGED" });
 
@@ -186,6 +251,33 @@ describe("typed API modules", () => {
       `collections/${collectionId}/copies?page=1&pageSize=100&lifecycle=ALL`,
       expect.anything(),
       { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      `collections/${collectionId}/copies?page=1&pageSize=100&lifecycle=ALL&category=Abstracto`,
+      expect.anything(),
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      `collections/${collectionId}/copies`,
+      expect.anything(),
+      expect.objectContaining({
+        body: JSON.stringify({
+          gameId,
+          proposedEdition: { editionName: "Deluxe", languageCode: "es" },
+          condition: "GOOD",
+        }),
+      }),
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      `copies/${copyId}`,
+      expect.anything(),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          proposedEdition: { editionName: "Deluxe", languageCode: "es" },
+          condition: "DAMAGED",
+        }),
+      }),
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
       `copies/${copyId}/move`,
@@ -210,10 +302,16 @@ describe("typed API modules", () => {
       status: "REJECTED",
       page: 2,
       pageSize: 12,
+      approvedByUserId: "f393aa06-8b03-44c8-b75a-8e15f59aa7b6",
     });
     await approveGameModerationCase("case with spaces");
     await rejectGameModerationCase("case with spaces", {
       reason: "  Missing publisher data  ",
+    });
+    await listEditionModerationCases({ status: "APPROVED" });
+    await approveEditionModerationCase("edition case");
+    await rejectEditionModerationCase("edition case", {
+      reason: "  Duplicate edition  ",
     });
 
     expect(apiFetchMock).toHaveBeenCalledWith(
@@ -226,7 +324,7 @@ describe("typed API modules", () => {
       }),
     );
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "moderation/games?page=2&pageSize=12&status=REJECTED",
+      "moderation/games?page=2&pageSize=12&status=REJECTED&approvedByUserId=f393aa06-8b03-44c8-b75a-8e15f59aa7b6",
       expect.anything(),
       { cache: "no-store" },
     );
@@ -240,6 +338,23 @@ describe("typed API modules", () => {
       expect.anything(),
       expect.objectContaining({
         body: JSON.stringify({ reason: "Missing publisher data" }),
+      }),
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "moderation/editions?page=1&pageSize=20&status=APPROVED",
+      expect.anything(),
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "moderation/edition-cases/edition%20case/approve",
+      expect.anything(),
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "moderation/edition-cases/edition%20case/reject",
+      expect.anything(),
+      expect.objectContaining({
+        body: JSON.stringify({ reason: "Duplicate edition" }),
       }),
     );
   });

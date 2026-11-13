@@ -16,6 +16,11 @@ La página privada valida la sesión y el perfil al cargar. Una sesión ausente 
 expirada muestra una salida segura hacia `/acceso`; no conserva datos privados
 en `localStorage`.
 
+La navegación también se adapta a la sesión: oculta `Acceder` al autenticar y
+solo muestra `Moderación` cuando `/auth/me` informa un rol `MODERATOR` o
+`ADMIN`. Las rutas y endpoints mantienen sus propias comprobaciones de
+permisos, independientemente de que un enlace sea visible.
+
 ## Formularios
 
 Registro, login y perfil reutilizan los contratos Zod de
@@ -39,6 +44,8 @@ Vitest y Testing Library cubren:
 - cambio entre login y registro;
 - carga y actualización observable del perfil;
 - reacción ante una sesión expirada.
+- navegación para visitantes, usuarios normales, moderadores y
+  administradores.
 
 Playwright ejecuta en Chromium el flujo real:
 

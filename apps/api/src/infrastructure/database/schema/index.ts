@@ -145,6 +145,37 @@ export const users = pgTable(
   ],
 );
 
+export const mediaAssets = pgTable(
+  "media_assets",
+  {
+    id: uuid("id").primaryKey(),
+    purposeCode: varchar("purpose_code", { length: 30 }).notNull(),
+    primaryObjectKey: text("primary_object_key").notNull().unique(),
+    thumbnailObjectKey: text("thumbnail_object_key").notNull().unique(),
+    mimeType: varchar("mime_type", { length: 100 }).notNull(),
+    byteSize: integer("byte_size").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    checksumSha256: varchar("checksum_sha256", { length: 64 }).notNull(),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: technicalTimestamp("created_at"),
+  },
+  (table) => [
+    index("media_assets_created_by_user_id_idx").on(table.createdByUserId),
+    check(
+      "media_assets_purpose_allowed",
+      sql`${table.purposeCode} IN ('USER_AVATAR', 'GAME_COVER')`,
+    ),
+    check("media_assets_byte_size_valid", sql`${table.byteSize} > 0`),
+    check(
+      "media_assets_dimensions_valid",
+      sql`${table.width} > 0 AND ${table.height} > 0`,
+    ),
+  ],
+);
+
 export const profiles = pgTable(
   "profiles",
   {
@@ -154,6 +185,9 @@ export const profiles = pgTable(
     displayName: varchar("display_name", { length: 120 }),
     bio: text("bio"),
     avatarUrl: text("avatar_url"),
+    avatarMediaId: uuid("avatar_media_id").references(() => mediaAssets.id, {
+      onDelete: "set null",
+    }),
     locationText: varchar("location_text", { length: 160 }),
     visibilityCode: varchar("visibility_code", { length: 30 })
       .notNull()
@@ -305,6 +339,19 @@ export const mechanics = pgTable(
   ],
 );
 
+export const categories = pgTable(
+  "categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 120 }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("categories_name_normalized_unique").on(
+      sql`lower(${table.name})`,
+    ),
+  ],
+);
+
 export const games = pgTable(
   "games",
   {
@@ -319,6 +366,9 @@ export const games = pgTable(
     minAge: smallint("min_age"),
     maxAge: smallint("max_age"),
     complexity: numeric("complexity", { precision: 3, scale: 2 }),
+    coverMediaId: uuid("cover_media_id").references(() => mediaAssets.id, {
+      onDelete: "set null",
+    }),
     classificationCode: varchar("classification_code", { length: 30 })
       .notNull()
       .references(() => gameClassifications.code),
@@ -397,9 +447,10 @@ export const moderationCases = pgTable(
   "moderation_cases",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    gameId: uuid("game_id")
-      .notNull()
-      .references(() => games.id, { onDelete: "cascade" }),
+    gameId: uuid("game_id").references(() => games.id, { onDelete: "cascade" }),
+    gameEditionId: uuid("game_edition_id").references(() => gameEditions.id, {
+      onDelete: "cascade",
+    }),
     currentStatusCode: varchar("current_status_code", { length: 40 })
       .notNull()
       .references(() => moderationStatuses.code),
@@ -427,7 +478,18 @@ export const moderationCases = pgTable(
     ),
     uniqueIndex("moderation_cases_one_pending_per_game")
       .on(table.gameId)
-      .where(sql`${table.currentStatusCode} = 'PENDING_REVIEW'`),
+      .where(
+        sql`${table.gameId} IS NOT NULL AND ${table.currentStatusCode} = 'PENDING_REVIEW'`,
+      ),
+    uniqueIndex("moderation_cases_one_pending_per_edition")
+      .on(table.gameEditionId)
+      .where(
+        sql`${table.gameEditionId} IS NOT NULL AND ${table.currentStatusCode} = 'PENDING_REVIEW'`,
+      ),
+    check(
+      "moderation_cases_single_target",
+      sql`(${table.gameId} IS NOT NULL)::integer + (${table.gameEditionId} IS NOT NULL)::integer = 1`,
+    ),
     check(
       "moderation_cases_status_allowed",
       sql`${table.currentStatusCode} IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')`,
@@ -483,6 +545,22 @@ export const gameMechanics = pgTable(
   ],
 );
 
+export const gameCategories = pgTable(
+  "game_categories",
+  {
+    gameId: uuid("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => categories.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.gameId, table.categoryId] }),
+    index("game_categories_category_id_idx").on(table.categoryId),
+  ],
+);
+
 export const gameEditions = pgTable(
   "game_editions",
   {
@@ -498,14 +576,29 @@ export const gameEditions = pgTable(
     sku: varchar("sku", { length: 80 }),
     upc: varchar("upc", { length: 32 }),
     notes: text("notes"),
+    moderationStatusCode: varchar("moderation_status_code", { length: 40 })
+      .notNull()
+      .default("APPROVED")
+      .references(() => moderationStatuses.code),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id),
     createdAt: technicalTimestamp("created_at"),
+    updatedAt: technicalTimestamp("updated_at"),
   },
   (table) => [
     index("game_editions_game_id_idx").on(table.gameId),
+    index("game_editions_status_game_idx").on(
+      table.moderationStatusCode,
+      table.gameId,
+    ),
+    index("game_editions_created_by_user_id_idx").on(table.createdByUserId),
     unique("game_editions_id_game_id_unique").on(table.id, table.gameId),
     check(
       "game_editions_publication_year_valid",
       sql`${table.publicationYear} IS NULL OR ${table.publicationYear} >= 0`,
+    ),
+    check(
+      "game_editions_moderation_status_allowed",
+      sql`${table.moderationStatusCode} IN ('PENDING_REVIEW', 'APPROVED', 'REJECTED')`,
     ),
   ],
 );

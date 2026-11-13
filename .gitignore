@@ -8,6 +8,7 @@ out/
 coverage/
 playwright-report/
 test-results/
+.data/
 
 # Environment files and local secrets
 .env

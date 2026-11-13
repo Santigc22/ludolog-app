@@ -6,10 +6,12 @@ import { useEffect, useState } from "react";
 
 import type { Collection, Copy, GameDetail } from "@ludoteca/contracts";
 
+import { ManagedImage } from "../media/managed-image";
 import { ApiRequestError } from "../../lib/api/client";
 import { listCollections } from "../../lib/api/collections";
 import { createCopy } from "../../lib/api/copies";
-import { getGame } from "../../lib/api/games";
+import { getGame, updatePublicGame } from "../../lib/api/games";
+import { imageFileError, uploadGameCover } from "../../lib/api/media";
 import { submitGameForModeration } from "../../lib/api/moderation";
 
 type ViewState = "loading" | "ready" | "not-found" | "error";
@@ -75,6 +77,12 @@ export function GameDetailWorkspace({ gameId }: { gameId: string }) {
   const [submissionMessage, setSubmissionMessage] = useState<string | null>(
     null,
   );
+  const [coverPending, setCoverPending] = useState(false);
+  const [coverMessage, setCoverMessage] = useState<Message | null>(null);
+  const [showCatalogEditor, setShowCatalogEditor] = useState(false);
+  const [catalogUpdatePending, setCatalogUpdatePending] = useState(false);
+  const [catalogUpdateMessage, setCatalogUpdateMessage] =
+    useState<Message | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -193,6 +201,93 @@ export function GameDetailWorkspace({ gameId }: { gameId: string }) {
     }
   }
 
+  async function handleCoverUpload(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const file = (form.elements.namedItem("cover") as HTMLInputElement | null)
+      ?.files?.[0];
+    if (!file || file.size === 0) {
+      setCoverMessage({ kind: "error", text: "Selecciona una imagen." });
+      return;
+    }
+    const validationError = imageFileError(file);
+    if (validationError) {
+      setCoverMessage({ kind: "error", text: validationError });
+      return;
+    }
+    setCoverPending(true);
+    setCoverMessage(null);
+    try {
+      const response = await uploadGameCover(gameId, file);
+      setGame((current) =>
+        current ? { ...current, coverMediaId: response.coverMediaId } : current,
+      );
+      form.reset();
+      setCoverMessage({ kind: "success", text: "La portada quedó guardada." });
+    } catch (error) {
+      setCoverMessage({
+        kind: "error",
+        text:
+          error instanceof ApiRequestError && error.status === 413
+            ? "La imagen supera el límite de 8 MB."
+            : "No pudimos guardar la portada.",
+      });
+    } finally {
+      setCoverPending(false);
+    }
+  }
+
+  async function handleCatalogUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const nullableNumber = (name: string) => {
+      const value = String(form.get(name) ?? "").trim();
+      return value === "" ? null : Number(value);
+    };
+    setCatalogUpdatePending(true);
+    setCatalogUpdateMessage(null);
+    try {
+      const response = await updatePublicGame(gameId, {
+        name: String(form.get("name") ?? ""),
+        description: String(form.get("description") ?? "").trim() || null,
+        publicationYear: nullableNumber("publicationYear"),
+        minPlayers: Number(form.get("minPlayers")),
+        maxPlayers: Number(form.get("maxPlayers")),
+        minDurationMinutes: nullableNumber("minDurationMinutes"),
+        maxDurationMinutes: nullableNumber("maxDurationMinutes"),
+        minAge: nullableNumber("minAge"),
+        maxAge: nullableNumber("maxAge"),
+        complexity: nullableNumber("complexity"),
+        mechanics: String(form.get("mechanics") ?? "")
+          .split(/[\n,]/)
+          .map((mechanic) => mechanic.trim())
+          .filter(Boolean),
+        categories: String(form.get("categories") ?? "")
+          .split(/[\n,]/)
+          .map((category) => category.trim())
+          .filter(Boolean),
+      });
+      setGame(response.game);
+      setShowCatalogEditor(false);
+      setCatalogUpdateMessage({
+        kind: "success",
+        text: "La ficha pública quedó actualizada.",
+      });
+    } catch (error) {
+      setCatalogUpdateMessage({
+        kind: "error",
+        text:
+          error instanceof ApiRequestError && error.status === 403
+            ? "Tu cuenta no tiene permiso para administrar el catálogo."
+            : error instanceof ApiRequestError && error.status === 400
+              ? "Revisa los datos y asegúrate de que los máximos no sean menores que los mínimos."
+              : "No pudimos actualizar la ficha pública.",
+      });
+    } finally {
+      setCatalogUpdatePending(false);
+    }
+  }
+
   if (viewState === "loading")
     return (
       <section className="collection-state" aria-busy="true">
@@ -245,6 +340,18 @@ export function GameDetailWorkspace({ gameId }: { gameId: string }) {
       </Link>
       <div className="game-detail-grid">
         <aside className="collection-summary">
+          <div className="game-detail-cover">
+            {game.coverMediaId ? (
+              <ManagedImage
+                mediaId={game.coverMediaId}
+                alt={`Portada de ${game.name}`}
+                width={800}
+                height={1000}
+              />
+            ) : (
+              <span aria-hidden="true">Este juego aún no tiene portada</span>
+            )}
+          </div>
           <div className="eyebrow">
             {game.visibility === "PRIVATE"
               ? "Juego privado · Tuyo"
@@ -310,6 +417,30 @@ export function GameDetailWorkspace({ gameId }: { gameId: string }) {
               <p>Sin mecánicas registradas.</p>
             )}
           </div>
+          <div className="summary-mechanics">
+            <span>Categorías</span>
+            {game.categories.length > 0 ? (
+              <ul>
+                {game.categories.map((category) => (
+                  <li key={category}>{category}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>Sin categorías registradas.</p>
+            )}
+          </div>
+          {game.canManageCatalog && game.visibility === "PUBLIC" ? (
+            <button
+              className="summary-action"
+              type="button"
+              onClick={() => {
+                setCatalogUpdateMessage(null);
+                setShowCatalogEditor((value) => !value);
+              }}
+            >
+              {showCatalogEditor ? "Cancelar edición" : "Editar ficha pública"}
+            </button>
+          ) : null}
           {canSubmitForModeration ? (
             <button
               className="summary-action"
@@ -324,9 +455,195 @@ export function GameDetailWorkspace({ gameId }: { gameId: string }) {
               Este juego está esperando la decisión de un moderador.
             </p>
           ) : null}
+          {(game.isOwnedByViewer && game.visibility === "PRIVATE") ||
+          (game.canManageCatalog && game.visibility === "PUBLIC") ? (
+            <form className="media-upload" onSubmit={handleCoverUpload}>
+              <label>
+                {game.coverMediaId ? "Cambiar portada" : "Añadir portada"}
+                <input
+                  name="cover"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  required
+                />
+              </label>
+              <small>JPG, PNG o WebP · máximo 8 MB.</small>
+              <button
+                className="secondary-action"
+                type="submit"
+                disabled={coverPending}
+              >
+                {coverPending ? "Guardando…" : "Guardar portada"}
+              </button>
+              {coverMessage ? (
+                <p
+                  className={`form-message ${coverMessage.kind === "success" ? "success-message" : "error-message"}`}
+                  role="status"
+                >
+                  {coverMessage.text}
+                </p>
+              ) : null}
+            </form>
+          ) : null}
         </aside>
 
         <div className="game-detail-content">
+          {catalogUpdateMessage ? (
+            <p
+              className={`form-message ${catalogUpdateMessage.kind === "success" ? "success-message" : "error-message"}`}
+              role="status"
+            >
+              {catalogUpdateMessage.text}
+            </p>
+          ) : null}
+          {showCatalogEditor && game.canManageCatalog ? (
+            <section
+              className="game-selection-panel"
+              aria-labelledby="catalog-editor-title"
+            >
+              <header>
+                <div className="eyebrow">Administración del catálogo</div>
+                <h2 id="catalog-editor-title">Editar ficha pública</h2>
+                <p className="lead">
+                  Los cambios se publican inmediatamente y quedan registrados en
+                  auditoría.
+                </p>
+              </header>
+              <form className="stack-form" onSubmit={handleCatalogUpdate}>
+                <label>
+                  Nombre del juego
+                  <input
+                    name="name"
+                    maxLength={220}
+                    required
+                    defaultValue={game.name}
+                  />
+                </label>
+                <label>
+                  Descripción
+                  <textarea
+                    name="description"
+                    maxLength={2000}
+                    rows={4}
+                    defaultValue={game.description ?? ""}
+                  />
+                </label>
+                <div className="field-grid">
+                  <label>
+                    Año de publicación
+                    <input
+                      name="publicationYear"
+                      type="number"
+                      min={0}
+                      max={32767}
+                      defaultValue={game.publicationYear ?? ""}
+                    />
+                  </label>
+                  <label>
+                    Complejidad (0–5)
+                    <input
+                      name="complexity"
+                      type="number"
+                      min={0}
+                      max={5}
+                      step="0.01"
+                      defaultValue={game.complexity ?? ""}
+                    />
+                  </label>
+                  <label>
+                    Jugadores mínimos
+                    <input
+                      name="minPlayers"
+                      type="number"
+                      min={1}
+                      max={32767}
+                      required
+                      defaultValue={game.minPlayers}
+                    />
+                  </label>
+                  <label>
+                    Jugadores máximos
+                    <input
+                      name="maxPlayers"
+                      type="number"
+                      min={1}
+                      max={32767}
+                      required
+                      defaultValue={game.maxPlayers}
+                    />
+                  </label>
+                  <label>
+                    Duración mínima (min)
+                    <input
+                      name="minDurationMinutes"
+                      type="number"
+                      min={0}
+                      defaultValue={game.minDurationMinutes ?? ""}
+                    />
+                  </label>
+                  <label>
+                    Duración máxima (min)
+                    <input
+                      name="maxDurationMinutes"
+                      type="number"
+                      min={0}
+                      defaultValue={game.maxDurationMinutes ?? ""}
+                    />
+                  </label>
+                  <label>
+                    Edad mínima
+                    <input
+                      name="minAge"
+                      type="number"
+                      min={0}
+                      max={32767}
+                      defaultValue={game.minAge ?? ""}
+                    />
+                  </label>
+                  <label>
+                    Edad máxima
+                    <input
+                      name="maxAge"
+                      type="number"
+                      min={0}
+                      max={32767}
+                      defaultValue={game.maxAge ?? ""}
+                    />
+                  </label>
+                </div>
+                <label>
+                  Mecánicas
+                  <textarea
+                    name="mechanics"
+                    rows={4}
+                    defaultValue={game.mechanics.join("\n")}
+                    aria-describedby="mechanics-help"
+                  />
+                </label>
+                <small id="mechanics-help">
+                  Escribe una mecánica por línea o sepáralas con comas.
+                </small>
+                <label>
+                  Categorías
+                  <textarea
+                    name="categories"
+                    rows={4}
+                    defaultValue={game.categories.join("\n")}
+                    aria-describedby="categories-help"
+                  />
+                </label>
+                <small id="categories-help">
+                  Ej. Cooperativo, Solitario, Animales o Robots; una por línea.
+                </small>
+                <button
+                  className="primary-action"
+                  disabled={catalogUpdatePending}
+                >
+                  {catalogUpdatePending ? "Guardando…" : "Guardar cambios"}
+                </button>
+              </form>
+            </section>
+          ) : null}
           <section className="game-selection-panel">
             <header>
               <div className="eyebrow">Tu colección</div>
@@ -383,6 +700,12 @@ export function GameDetailWorkspace({ gameId }: { gameId: string }) {
                     <span>
                       {editionMetadata(edition) || "Sin detalles adicionales"}
                     </span>
+                    {edition.moderationStatus === "PENDING_REVIEW" ? (
+                      <small className="edition-pending-note">
+                        Pendiente de moderación · solo tú puedes seleccionarla
+                        por ahora
+                      </small>
+                    ) : null}
                     {edition.notes ? <small>{edition.notes}</small> : null}
                   </button>
                 ))

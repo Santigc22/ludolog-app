@@ -42,8 +42,17 @@ export const LoginRequestSchema = z.object({
 
 export const SessionResponseSchema = RegisterResponseSchema;
 
+export const GlobalRoleSchema = z.enum([
+  "USER",
+  "MODERATOR",
+  "CONTENT_MANAGER",
+  "ADMIN",
+]);
+
 export const CurrentSessionResponseSchema = z.object({
-  user: AuthenticatedUserSchema,
+  user: AuthenticatedUserSchema.extend({
+    roles: z.array(GlobalRoleSchema).min(1),
+  }),
 });
 
 export const LogoutResponseSchema = z.object({
@@ -56,6 +65,7 @@ export type RegisterResponse = z.infer<typeof RegisterResponseSchema>;
 export type LoginRequest = z.input<typeof LoginRequestSchema>;
 export type NormalizedLoginRequest = z.output<typeof LoginRequestSchema>;
 export type SessionResponse = z.infer<typeof SessionResponseSchema>;
+export type GlobalRole = z.infer<typeof GlobalRoleSchema>;
 export type CurrentSessionResponse = z.infer<
   typeof CurrentSessionResponseSchema
 >;
