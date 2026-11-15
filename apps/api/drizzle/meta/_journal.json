@@ -99,6 +99,13 @@
       "when": 1794544488571,
       "tag": "0013_classy_maddog",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794593406023,
+      "tag": "0014_jazzy_tarantula",
+      "breakpoints": true
     }
   ]
 }

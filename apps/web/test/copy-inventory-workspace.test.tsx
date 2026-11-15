@@ -170,11 +170,27 @@ test("lists copies and opens their complete detail", async () => {
   expect(screen.getByText(/Alias:/)).toBeInTheDocument();
   expect(screen.getByText("Azul familiar")).toBeInTheDocument();
   fireEvent.click(await screen.findByRole("button", { name: /Azul familiar/ }));
-  const copyDetail = await screen.findByLabelText("Detalle de la copia");
+  const copyDetail = await screen.findByRole("dialog", {
+    name: "Detalle de la copia",
+  });
+  expect(copyDetail).toHaveAttribute("open");
   expect(copyDetail).toHaveTextContent("Edición en español");
   expect(copyDetail.querySelector("h3")).toHaveTextContent("Azul");
   expect(copyDetail).toHaveTextContent("Alias: Azul familiar");
+  expect(
+    screen.getByRole("link", { name: "Registrar partida con esta copia" }),
+  ).toHaveAttribute(
+    "href",
+    `/partidas?gameId=${game.id}&copyId=${copy.id}&editionId=${edition.id}`,
+  );
   expect(getCopy).toHaveBeenCalledWith(copy.id);
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "Cerrar detalle de Azul" }),
+  );
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+  );
 });
 
 test("shows a labeled alias even when it matches the game name", async () => {
@@ -228,6 +244,12 @@ test("refreshes the alias field when selecting a different copy", async () => {
     await screen.findByRole("textbox", { name: /Alias de esta copia/ }),
   ).toHaveValue("Azul familiar");
 
+  fireEvent.click(
+    screen.getByRole("button", { name: "Cerrar detalle de Azul" }),
+  );
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+  );
   fireEvent.click(screen.getByRole("button", { name: /Catan del club/ }));
   await waitFor(() =>
     expect(

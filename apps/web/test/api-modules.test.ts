@@ -47,6 +47,12 @@ import {
   rejectGameModerationCase,
   submitGameForModeration,
 } from "../src/lib/api/moderation";
+import {
+  createMatch,
+  getMatch,
+  listMatches,
+  updateMatch,
+} from "../src/lib/api/matches";
 
 const apiFetchMock = vi.mocked(apiFetch);
 const readBrowserCookieMock = vi.mocked(readBrowserCookie);
@@ -348,6 +354,53 @@ describe("typed API modules", () => {
       `copies/${copyId}/exit`,
       expect.anything(),
       expect.objectContaining({ body: JSON.stringify({ reason: "DAMAGED" }) }),
+    );
+  });
+
+  test("builds match history reads and protected writes", async () => {
+    const matchId = "930a9d0e-b4f4-4299-bcd1-e51be4d85c13";
+    const gameId = "4e145b05-1f8c-4b3f-a535-3c474bb55e95";
+    const userId = "f393aa06-8b03-44c8-b75a-8e15f59aa7b6";
+    await listMatches({ page: 2, pageSize: 10, status: "INCOMPLETE" });
+    await getMatch("match with spaces");
+    await createMatch({
+      gameId,
+      startedAt: "2026-11-13T18:30:00.000Z",
+      participants: [{ userId }],
+    });
+    await updateMatch(matchId, {
+      status: "CANCELLED",
+      participants: [{ userId, outcome: "NO_RESULT" }],
+    });
+
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "matches?page=2&pageSize=10&status=INCOMPLETE",
+      expect.anything(),
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "matches/match%20with%20spaces",
+      expect.anything(),
+      { cache: "no-store" },
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      "matches",
+      expect.anything(),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "x-csrf-token": "csrf-token" }),
+      }),
+    );
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      `matches/${matchId}`,
+      expect.anything(),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          status: "CANCELLED",
+          participants: [{ userId, outcome: "NO_RESULT" }],
+        }),
+      }),
     );
   });
 

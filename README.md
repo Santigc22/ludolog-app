@@ -174,7 +174,8 @@ Las pruebas API utilizan exclusivamente `TEST_DATABASE_URL`. Consulta
 La interfaz de identidad está disponible en <http://localhost:3000/acceso>, el
 perfil autenticado en <http://localhost:3000/perfil>, las ludotecas personales
 en <http://localhost:3000/ludotecas> y el catálogo de juegos en
-<http://localhost:3000/catalogo>. La cola para cuentas `MODERATOR` o `ADMIN`
+<http://localhost:3000/catalogo>. El historial de partidas está en
+<http://localhost:3000/partidas>. La cola para cuentas `MODERATOR` o `ADMIN`
 está en <http://localhost:3000/moderacion>.
 
 ## Migraciones
@@ -206,6 +207,7 @@ migraciones ya aplicadas.
 - [Interfaz del catálogo](docs/game-catalog-web.md)
 - [Moderación de juegos](docs/game-moderation-web.md)
 - [Imágenes locales](docs/local-media-storage.md)
+- [Partidas — primera vertical](docs/matches-mvp.md)
 - [Esquema de copias e historial](docs/copy-inventory-schema.md)
 - [API HTTP](docs/api/README.md)
 - [Guía de inicialización detallada](docs/ludoteca_virtual_guia_inicializacion_repo.md)

@@ -642,6 +642,7 @@ export const copies = pgTable(
     index("copies_current_collection_id_idx").on(table.currentCollectionId),
     index("copies_lifecycle_code_idx").on(table.lifecycleCode),
     index("copies_created_by_user_id_idx").on(table.createdByUserId),
+    unique("copies_id_game_id_unique").on(table.id, table.gameId),
     foreignKey({
       name: "copies_edition_belongs_to_game_fk",
       columns: [table.gameEditionId, table.gameId],
@@ -660,6 +661,108 @@ export const copies = pgTable(
         AND ${table.exitReasonCode} IS NOT NULL
         AND ${table.exitedAt} IS NOT NULL
       )`,
+    ),
+  ],
+);
+
+export const matches = pgTable(
+  "matches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gameId: uuid("game_id")
+      .notNull()
+      .references(() => games.id),
+    gameEditionId: uuid("game_edition_id"),
+    copyId: uuid("copy_id"),
+    collectionId: uuid("collection_id").references(() => collections.id),
+    createdByUserId: uuid("created_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    statusCode: varchar("status_code", { length: 30 })
+      .notNull()
+      .references(() => matchStatuses.code),
+    visibilityCode: varchar("visibility_code", { length: 30 })
+      .notNull()
+      .references(() => visibilityLevels.code),
+    startedAt: timestamp("started_at", {
+      withTimezone: true,
+      mode: "date",
+      precision: 3,
+    }).notNull(),
+    durationMinutes: integer("duration_minutes"),
+    locationText: varchar("location_text", { length: 220 }),
+    notes: text("notes"),
+    createdAt: technicalTimestamp("created_at"),
+    updatedAt: technicalTimestamp("updated_at"),
+  },
+  (table) => [
+    index("matches_creator_started_idx").on(
+      table.createdByUserId,
+      table.startedAt,
+    ),
+    index("matches_game_started_idx").on(table.gameId, table.startedAt),
+    index("matches_copy_id_idx").on(table.copyId),
+    index("matches_collection_id_idx").on(table.collectionId),
+    foreignKey({
+      name: "matches_edition_belongs_to_game_fk",
+      columns: [table.gameEditionId, table.gameId],
+      foreignColumns: [gameEditions.id, gameEditions.gameId],
+    }),
+    foreignKey({
+      name: "matches_copy_belongs_to_game_fk",
+      columns: [table.copyId, table.gameId],
+      foreignColumns: [copies.id, copies.gameId],
+    }),
+    check(
+      "matches_status_allowed",
+      sql`${table.statusCode} IN ('COMPLETED', 'INCOMPLETE', 'CANCELLED')`,
+    ),
+    check(
+      "matches_visibility_allowed",
+      sql`${table.visibilityCode} IN ('PRIVATE', 'PUBLIC')`,
+    ),
+    check(
+      "matches_duration_valid",
+      sql`${table.durationMinutes} IS NULL OR ${table.durationMinutes} >= 0`,
+    ),
+  ],
+);
+
+export const matchParticipants = pgTable(
+  "match_participants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    matchId: uuid("match_id")
+      .notNull()
+      .references(() => matches.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id),
+    guestName: varchar("guest_name", { length: 160 }),
+    displayNameSnapshot: varchar("display_name_snapshot", {
+      length: 160,
+    }).notNull(),
+    seatOrder: smallint("seat_order").notNull(),
+    outcomeTypeCode: varchar("outcome_type_code", { length: 30 })
+      .notNull()
+      .default("NO_RESULT")
+      .references(() => outcomeTypes.code),
+    scoreNumeric: numeric("score_numeric", { precision: 18, scale: 4 }),
+    createdAt: technicalTimestamp("created_at"),
+  },
+  (table) => [
+    index("match_participants_match_id_idx").on(table.matchId),
+    index("match_participants_user_id_idx").on(table.userId),
+    unique("match_participants_seat_unique").on(table.matchId, table.seatOrder),
+    uniqueIndex("match_participants_registered_user_unique")
+      .on(table.matchId, table.userId)
+      .where(sql`${table.userId} IS NOT NULL`),
+    check(
+      "match_participants_single_identity",
+      sql`(${table.userId} IS NOT NULL)::integer + (${table.guestName} IS NOT NULL)::integer = 1`,
+    ),
+    check("match_participants_seat_valid", sql`${table.seatOrder} >= 1`),
+    check(
+      "match_participants_outcome_allowed",
+      sql`${table.outcomeTypeCode} IN ('WIN', 'LOSS', 'DRAW', 'NO_RESULT')`,
     ),
   ],
 );

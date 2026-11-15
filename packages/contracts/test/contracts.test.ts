@@ -24,6 +24,8 @@ import {
   HealthResponseSchema,
   LoginRequestSchema,
   MoveCopyRequestSchema,
+  CreateMatchRequestSchema,
+  UpdateMatchRequestSchema,
   PaginationQuerySchema,
   RegisterRequestSchema,
   RegisterResponseSchema,
@@ -148,6 +150,45 @@ test("validates direct public game batches and rejects repeated names", () => {
       ],
     }).success,
   ).toBe(false);
+});
+
+test("validates match participants, outcomes and incomplete sessions", () => {
+  const userId = "f393aa06-8b03-44c8-b75a-8e15f59aa7b6";
+  expect(
+    CreateMatchRequestSchema.parse({
+      gameId: "4e145b05-1f8c-4b3f-a535-3c474bb55e95",
+      startedAt: "2026-11-13T18:30:00.000Z",
+      participants: [
+        { userId, outcome: "WIN", score: 42 },
+        { guestName: " Invitada ", outcome: "LOSS", score: 10 },
+      ],
+    }),
+  ).toMatchObject({
+    status: "COMPLETED",
+    visibility: "PRIVATE",
+    participants: [
+      { userId, outcome: "WIN" },
+      { guestName: "Invitada", outcome: "LOSS" },
+    ],
+  });
+  expect(
+    CreateMatchRequestSchema.safeParse({
+      gameId: "4e145b05-1f8c-4b3f-a535-3c474bb55e95",
+      startedAt: "2026-11-13T18:30:00.000Z",
+      status: "INCOMPLETE",
+      participants: [{ guestName: "Invitada", outcome: "WIN" }],
+    }).success,
+  ).toBe(false);
+  expect(
+    CreateMatchRequestSchema.safeParse({
+      gameId: "4e145b05-1f8c-4b3f-a535-3c474bb55e95",
+      startedAt: "2026-11-13T18:30:00.000Z",
+      participants: [{ userId }, { userId }],
+    }).success,
+  ).toBe(false);
+  expect(UpdateMatchRequestSchema.safeParse({ participants: [] }).success).toBe(
+    false,
+  );
 });
 
 test("normalizes copy creation and keeps lifecycle fields server-owned", () => {

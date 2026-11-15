@@ -82,6 +82,40 @@ test("removes selected values and restores initial values on form reset", () => 
   expect(resetSpy).toHaveBeenCalledOnce();
 });
 
+test("keeps selected values when Backspace clears or repeats on the draft", () => {
+  render(
+    <form aria-label="Juego">
+      <TagAutocomplete
+        name="categories"
+        label="Categorías"
+        suggestions={suggestions}
+        initialValues={["Cartas", "Familiar", "Animales"]}
+      />
+    </form>,
+  );
+
+  const input = screen.getByLabelText("Categorías");
+  fireEvent.change(input, { target: { value: "Piratas" } });
+  for (const value of ["Pirata", "Pirat", "Pira", "Pir", "Pi", "P", ""]) {
+    fireEvent.keyDown(input, { key: "Backspace", repeat: true });
+    fireEvent.change(input, { target: { value } });
+  }
+  fireEvent.keyDown(input, { key: "Backspace", repeat: true });
+  fireEvent.keyDown(input, { key: "Backspace", repeat: true });
+
+  expect(screen.getByText("Cartas")).toBeInTheDocument();
+  expect(screen.getByText("Familiar")).toBeInTheDocument();
+  expect(screen.getByText("Animales")).toBeInTheDocument();
+  expect(
+    document.querySelector<HTMLInputElement>('input[name="categories"]')?.value,
+  ).toBe("Cartas\nFamiliar\nAnimales");
+
+  fireEvent.click(screen.getByRole("button", { name: "Quitar Familiar" }));
+  expect(screen.queryByText("Familiar")).not.toBeInTheDocument();
+  expect(screen.getByText("Cartas")).toBeInTheDocument();
+  expect(screen.getByText("Animales")).toBeInTheDocument();
+});
+
 test("completes a single filter with Tab and advances naturally", () => {
   const change = vi.fn();
   const View = ({ value }: { value: string }) => (

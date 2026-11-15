@@ -40,6 +40,10 @@ directorio. Como mínimo debe indicar:
 | `POST` | `/api/v1/games/public` | Crea y aprueba directamente una ficha pública | `ADMIN` mediante permiso exclusivo + CSRF |
 | `POST` | `/api/v1/games/public/batch` | Crea y aprueba hasta 500 fichas públicas en una transacción | `ADMIN` mediante permiso exclusivo + CSRF |
 | `POST` | `/api/v1/games/:gameId/cover` | Guarda o reemplaza la portada del juego | Propietario privado o moderación + CSRF |
+| `GET` | `/api/v1/matches` | Lista el historial de partidas creado por la sesión | Sí |
+| `POST` | `/api/v1/matches` | Registra una partida y sus participantes | Sí + `match.create` + CSRF |
+| `GET` | `/api/v1/matches/:matchId` | Consulta una partida propia | Sí |
+| `PATCH` | `/api/v1/matches/:matchId` | Edita o cancela una partida propia | Sí + `match.update` + CSRF |
 | `GET` | `/api/v1/media/:mediaId` | Sirve una imagen aplicando su visibilidad | Opcional según el recurso |
 | `POST` | `/api/v1/games/:gameId/moderation-submissions` | Propone un juego privado propio para publicación global | Sí + permiso + CSRF |
 | `GET` | `/api/v1/moderation/games` | Lista la cola de propuestas por estado | Sí + `moderation.view` |
@@ -77,6 +81,8 @@ El flujo de propuesta, cola, aprobación y rechazo está en
 [game-moderation.md](./game-moderation.md).
 Las cargas y lecturas de avatares y portadas se detallan en
 [media.md](./media.md).
+El MVP de registro e historial de partidas se documenta en
+[matches.md](./matches.md).
 El registro transaccional de copias se documenta en
 [copy-create.md](./copy-create.md).
 El listado y detalle de copias se documentan en

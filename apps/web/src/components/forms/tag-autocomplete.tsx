@@ -151,10 +151,6 @@ export function TagAutocomplete({
     }
     if (event.key === "Escape") {
       setFocused(false);
-      return;
-    }
-    if (event.key === "Backspace" && !draft && selected.length > 0) {
-      setSelected((current) => current.slice(0, -1));
     }
   }
 
@@ -246,7 +242,7 @@ export function TagAutocomplete({
       />
       <small id={helpId} className="tag-autocomplete-help">
         {help ??
-          "Escribe para buscar. Usa ↑/↓ y Tab o Enter para elegir; también puedes añadir un término nuevo."}
+          "Escribe para buscar. Usa ↑/↓ y Tab o Enter para elegir; también puedes añadir un término nuevo. Las etiquetas elegidas solo se quitan con ×."}
       </small>
     </div>
   );

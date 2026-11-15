@@ -37,6 +37,10 @@ describe("SiteNavigation", () => {
     await act(async () => resolveSession?.({ user: { roles: ["USER"] } }));
     expect(screen.queryByRole("link", { name: "Acceder" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Moderación" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Partidas" })).toHaveAttribute(
+      "href",
+      "/partidas",
+    );
   });
 
   test("shows access to an anonymous visitor", async () => {
@@ -47,6 +51,7 @@ describe("SiteNavigation", () => {
       await screen.findByRole("link", { name: "Acceder" }),
     ).toHaveAttribute("href", "/acceso");
     expect(screen.queryByRole("link", { name: "Moderación" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Partidas" })).toBeNull();
   });
 
   test.each(["MODERATOR", "ADMIN"] as const)(

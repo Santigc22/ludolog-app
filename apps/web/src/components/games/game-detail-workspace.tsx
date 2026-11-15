@@ -460,6 +460,12 @@ export function GameDetailWorkspace({ gameId }: { gameId: string }) {
               <p>Sin categorías registradas.</p>
             )}
           </div>
+          <Link
+            className="summary-action match-entry-link"
+            href={`/partidas?gameId=${encodeURIComponent(game.id)}`}
+          >
+            Registrar partida
+          </Link>
           {game.canManageCatalog && game.visibility === "PUBLIC" ? (
             <button
               className="summary-action"

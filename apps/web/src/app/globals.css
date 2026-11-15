@@ -1310,6 +1310,15 @@ a {
 .summary-action:hover {
   background: rgb(255 255 255 / 9%);
 }
+.match-entry-link {
+  display: grid;
+  place-items: center;
+  text-decoration: none;
+}
+.copy-match-action {
+  width: fit-content;
+  margin-bottom: 1.25rem;
+}
 .summary-note {
   margin: 1.4rem 0 0;
   border-top: 1px solid rgb(255 255 255 / 15%);
@@ -1548,6 +1557,39 @@ a {
   padding: 1.25rem;
   background: var(--surface);
 }
+.copy-detail-dialog {
+  width: min(70rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  overflow: auto;
+  color: var(--ink);
+  box-shadow: 0 28px 90px rgb(20 30 25 / 30%);
+}
+.copy-detail-dialog::backdrop {
+  background: rgb(24 32 28 / 58%);
+  backdrop-filter: blur(3px);
+}
+.copy-detail-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+.copy-detail-close {
+  display: grid;
+  width: 2.35rem;
+  height: 2.35rem;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 1.35rem;
+}
+.copy-detail-close:hover {
+  background: #f2f4ef;
+}
 .edition-proposal-toggle {
   display: flex;
   align-items: center;
@@ -1777,6 +1819,390 @@ a {
   font-weight: 850;
 }
 
+.match-workspace {
+  display: grid;
+  gap: 2rem;
+}
+.match-form {
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: clamp(1.4rem, 4vw, 2.2rem);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.match-form h2,
+.match-history-heading h2 {
+  margin: 0.35rem 0 0;
+  font-family: Georgia, serif;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  font-weight: 500;
+}
+.participant-fieldset {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  padding: 1.1rem;
+  background: #f7f8f5;
+}
+.participant-fieldset legend {
+  padding-inline: 0.4rem;
+  color: var(--forest);
+  font-family: Georgia, serif;
+  font-size: 1.35rem;
+}
+.participant-fieldset > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.participant-list {
+  display: grid;
+  gap: 0.75rem;
+}
+.participant-add-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+.participant-row {
+  display: grid;
+  grid-template-columns:
+    auto minmax(10rem, 1.4fr) minmax(8rem, 0.8fr) minmax(7rem, 0.6fr)
+    auto;
+  gap: 0.7rem;
+  align-items: end;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.75rem;
+}
+.participant-row:last-child {
+  border-bottom: 0;
+}
+.participant-row label,
+.match-history-heading label {
+  display: grid;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+.participant-row input,
+.participant-row select,
+.match-history-heading select {
+  min-height: 2.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  padding: 0.55rem 0.7rem;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+.participant-seat {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  margin-bottom: 0.35rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--forest);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+.match-form-actions,
+.match-card-actions,
+.pagination-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+.match-history-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+}
+.match-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 1rem;
+}
+.match-card {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  align-self: stretch;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--surface);
+  box-shadow: 0 12px 30px rgb(45 52 45 / 7%);
+}
+.match-card-cover {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  background: #e7e9e2;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.match-card-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.match-card-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 1.25rem;
+}
+.match-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+}
+.match-card-top time,
+.match-card-body > p {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.match-card-body h3,
+.match-card-body > p {
+  margin: 0;
+}
+.match-card-body h3 {
+  font-family: Georgia, serif;
+  font-size: 1.7rem;
+  font-weight: 500;
+}
+.match-game-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.18em;
+  transition:
+    color 160ms ease,
+    text-decoration-color 160ms ease;
+}
+.match-game-link:hover,
+.match-game-link:focus-visible {
+  color: var(--forest);
+  text-decoration-color: currentcolor;
+}
+.match-status {
+  border-radius: 999px;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.66rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+.match-status-completed {
+  background: #dcecdf;
+  color: #315b3d;
+}
+.match-status-incomplete {
+  background: #f6eccf;
+  color: #755d1e;
+}
+.match-status-cancelled {
+  background: #ece8e2;
+  color: #746456;
+}
+.match-card-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+.match-card-facts div {
+  border-radius: 0.55rem;
+  padding: 0.6rem;
+  background: #f2f4ef;
+}
+.match-card-facts dt {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+.match-card-facts dd {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+.match-participant-summary {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.match-card-body > .match-participant-summary {
+  min-height: 6.5rem;
+  align-content: start;
+}
+.match-participant-summary li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.7rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.35rem;
+  font-size: 0.75rem;
+}
+.match-participant-summary .match-participant-overflow {
+  justify-content: flex-start;
+  border-bottom: 0;
+  padding-bottom: 0;
+  color: var(--muted);
+  font-weight: 750;
+}
+.match-participant-summary .match-outcome-win {
+  color: var(--forest);
+}
+.match-participant-summary .match-outcome-loss {
+  color: #a33a2f;
+}
+.match-participant-summary .match-outcome-draw {
+  color: #9a5a12;
+}
+.match-participant-summary .match-outcome-no-result {
+  color: var(--muted);
+}
+.match-notes {
+  display: -webkit-box;
+  overflow: hidden;
+  border-left: 3px solid var(--gold);
+  padding-left: 0.8rem;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.match-card .match-card-actions {
+  min-height: 6.75rem;
+  align-content: flex-start;
+  margin-top: auto;
+}
+.match-detail-dialog {
+  width: min(44rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  margin: auto;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: 0;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 28px 90px rgb(20 30 25 / 28%);
+}
+.match-detail-dialog::backdrop {
+  background: rgb(24 32 28 / 58%);
+  backdrop-filter: blur(3px);
+}
+.match-detail-content {
+  display: grid;
+  gap: 1.25rem;
+  padding: clamp(1.25rem, 4vw, 2rem);
+}
+.match-detail-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.match-detail-header h2 {
+  margin: 0.35rem 0 0;
+  font-family: Georgia, serif;
+  font-size: clamp(1.8rem, 5vw, 2.5rem);
+  font-weight: 500;
+}
+.match-detail-header p,
+.match-detail-notes p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.match-game-detail-link {
+  display: inline-flex;
+  margin-top: 0.65rem;
+  color: var(--forest);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+.match-game-detail-link:hover,
+.match-game-detail-link:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+.match-detail-close {
+  display: grid;
+  flex: 0 0 auto;
+  width: 2.35rem;
+  height: 2.35rem;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 1.35rem;
+}
+.match-detail-close:hover {
+  background: #f2f4ef;
+}
+.match-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+.match-detail-facts div {
+  border-radius: 0.65rem;
+  padding: 0.75rem;
+  background: #f2f4ef;
+}
+.match-detail-facts dt {
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+.match-detail-facts dd {
+  margin: 0.3rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+.match-detail-participants,
+.match-detail-notes {
+  display: grid;
+  gap: 0.65rem;
+}
+.match-detail-participants h3,
+.match-detail-notes h3 {
+  margin: 0;
+  color: var(--forest-dark);
+  font-family: Georgia, serif;
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+.match-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.pagination-actions {
+  justify-content: center;
+}
+
 @media (max-width: 800px) {
   .site-header {
     padding-inline: 1.25rem;
@@ -1805,6 +2231,15 @@ a {
   }
   .copy-actions,
   .copy-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .match-grid {
+    grid-template-columns: 1fr;
+  }
+  .participant-row {
+    grid-template-columns: auto repeat(2, minmax(8rem, 1fr));
+  }
+  .match-detail-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .collection-grid {
@@ -1891,6 +2326,26 @@ a {
   .copy-detail > header {
     align-items: stretch;
     flex-direction: column;
+  }
+  .copy-detail-header-actions {
+    justify-content: space-between;
+  }
+  .match-history-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .participant-row,
+  .match-card {
+    grid-template-columns: 1fr;
+  }
+  .participant-seat {
+    margin-bottom: 0;
+  }
+  .match-card-cover {
+    height: 12rem;
+  }
+  .match-detail-facts {
+    grid-template-columns: 1fr;
   }
   .access-card,
   .profile-card,

@@ -51,6 +51,9 @@ export function SiteNavigation() {
       <Link href="/">Inicio</Link>
       <Link href="/catalogo">Catálogo</Link>
       <Link href="/ludotecas">Mis ludotecas</Link>
+      {sessionState === "authenticated" ? (
+        <Link href="/partidas">Partidas</Link>
+      ) : null}
       {canModerate ? <Link href="/moderacion">Moderación</Link> : null}
       <Link href="/perfil">Mi perfil</Link>
       {sessionState === "anonymous" ? (

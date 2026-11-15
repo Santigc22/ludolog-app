@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type {
   CollectionDetail,
@@ -105,6 +106,7 @@ export function CopyInventoryWorkspace({
   collection: CollectionDetail;
   onGameCountChange?: (difference: number) => void;
 }) {
+  const detailDialog = useRef<HTMLDialogElement>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [copies, setCopies] = useState<CopyListItem[]>([]);
   const [selected, setSelected] = useState<CopyDetail | null>(null);
@@ -195,6 +197,28 @@ export function CopyInventoryWorkspace({
         }),
       );
   }, [games.length, showCreate]);
+
+  useEffect(() => {
+    const dialog = detailDialog.current;
+    if (!selected || !dialog || dialog.open) return;
+    try {
+      dialog.showModal();
+    } catch {
+      dialog.setAttribute("open", "");
+    }
+  }, [selected]);
+
+  function closeCopyDetail() {
+    const dialog = detailDialog.current;
+    if (dialog?.open) {
+      try {
+        dialog.close();
+      } catch {
+        dialog.removeAttribute("open");
+      }
+    }
+    setSelected(null);
+  }
 
   async function showCopyDetail(copy: CopyDetail) {
     setSelected(copy);
@@ -663,7 +687,7 @@ export function CopyInventoryWorkspace({
         </form>
       ) : null}
 
-      {message ? (
+      {message && !selected ? (
         <p
           className={`form-message ${message.kind === "success" ? "success-message" : "error-message"}`}
           role="status"
@@ -885,10 +909,19 @@ export function CopyInventoryWorkspace({
       ) : null}
 
       {selected ? (
-        <article
+        <dialog
+          ref={detailDialog}
           key={selected.id}
-          className="copy-detail"
+          className="copy-detail copy-detail-dialog"
           aria-label="Detalle de la copia"
+          onCancel={(event) => {
+            event.preventDefault();
+            closeCopyDetail();
+          }}
+          onClose={() => setSelected(null)}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) closeCopyDetail();
+          }}
         >
           <header>
             <div className="copy-detail-heading">
@@ -911,9 +944,20 @@ export function CopyInventoryWorkspace({
                 ) : null}
               </div>
             </div>
-            <span className="status-pill">
-              {selected.lifecycle === "ACTIVE" ? "Activa" : "Retirada"}
-            </span>
+            <div className="copy-detail-header-actions">
+              <span className="status-pill">
+                {selected.lifecycle === "ACTIVE" ? "Activa" : "Retirada"}
+              </span>
+              <button
+                className="copy-detail-close"
+                type="button"
+                aria-label={`Cerrar detalle de ${selected.game.name}`}
+                onClick={closeCopyDetail}
+                autoFocus
+              >
+                ×
+              </button>
+            </div>
           </header>
           <dl className="copy-facts">
             <div>
@@ -941,6 +985,14 @@ export function CopyInventoryWorkspace({
               <dd>{selected.collectionHistory.length} tramo(s)</dd>
             </div>
           </dl>
+          {message ? (
+            <p
+              className={`form-message ${message.kind === "success" ? "success-message" : "error-message"}`}
+              role="status"
+            >
+              {message.text}
+            </p>
+          ) : null}
           {selected.lifecycle === "EXITED" ? (
             <p className="read-only-note">
               Esta copia fue retirada por <strong>{selected.exitReason}</strong>
@@ -948,6 +1000,13 @@ export function CopyInventoryWorkspace({
               adquisición(es) siguen disponibles.
             </p>
           ) : null}
+
+          <Link
+            className="primary-action link-action copy-match-action"
+            href={`/partidas?gameId=${encodeURIComponent(selected.game.id)}&copyId=${encodeURIComponent(selected.id)}${selected.gameEditionId ? `&editionId=${encodeURIComponent(selected.gameEditionId)}` : ""}`}
+          >
+            Registrar partida con esta copia
+          </Link>
 
           {canManage &&
           selected.lifecycle === "ACTIVE" &&
@@ -1155,7 +1214,7 @@ export function CopyInventoryWorkspace({
               </form>
             </div>
           ) : null}
-        </article>
+        </dialog>
       ) : null}
     </section>
   );
