@@ -361,7 +361,13 @@ describe("typed API modules", () => {
     const matchId = "930a9d0e-b4f4-4299-bcd1-e51be4d85c13";
     const gameId = "4e145b05-1f8c-4b3f-a535-3c474bb55e95";
     const userId = "f393aa06-8b03-44c8-b75a-8e15f59aa7b6";
-    await listMatches({ page: 2, pageSize: 10, status: "INCOMPLETE" });
+    await listMatches({
+      page: 2,
+      pageSize: 10,
+      status: "INCOMPLETE",
+      startedFrom: "2026-11-13T05:00:00.000Z",
+      startedBefore: "2026-11-14T05:00:00.000Z",
+    });
     await getMatch("match with spaces");
     await createMatch({
       gameId,
@@ -374,7 +380,7 @@ describe("typed API modules", () => {
     });
 
     expect(apiFetchMock).toHaveBeenCalledWith(
-      "matches?page=2&pageSize=10&status=INCOMPLETE",
+      "matches?page=2&pageSize=10&status=INCOMPLETE&startedFrom=2026-11-13T05%3A00%3A00.000Z&startedBefore=2026-11-14T05%3A00%3A00.000Z",
       expect.anything(),
       { cache: "no-store" },
     );

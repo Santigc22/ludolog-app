@@ -163,6 +163,63 @@ test("registers a match from a visible game with the user and a guest", async ()
   expect(await screen.findByText("La partida quedó registrada.")).toBeVisible();
 });
 
+test("creates a planned match without outcomes or scores", async () => {
+  render(<MatchWorkspace initialGameId={gameId} />);
+  await screen.findByText("Sky Team admite 2 participantes.");
+  fireEvent.click(screen.getByRole("button", { name: "Añadir invitado" }));
+  fireEvent.change(screen.getByLabelText("Nombre del invitado"), {
+    target: { value: "Invitada futura" },
+  });
+  const form = screen
+    .getByRole("button", { name: "Registrar partida" })
+    .closest("form")!;
+  const outcomes = within(form).getAllByLabelText("Resultado");
+  const scores = within(form).getAllByLabelText("Puntuación");
+  fireEvent.change(outcomes[0]!, { target: { value: "WIN" } });
+  fireEvent.change(scores[0]!, { target: { value: "15" } });
+  fireEvent.change(within(form).getByLabelText("Fecha y hora"), {
+    target: { value: "2027-01-10T10:00" },
+  });
+  fireEvent.change(within(form).getByLabelText("Estado"), {
+    target: { value: "PLANNED" },
+  });
+
+  expect(outcomes[0]).toBeDisabled();
+  expect(outcomes[0]).toHaveValue("NO_RESULT");
+  expect(scores[0]).toBeDisabled();
+  expect(scores[0]).toHaveValue(null);
+  fireEvent.submit(form);
+
+  await waitFor(() =>
+    expect(createMatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "PLANNED",
+        startedAt: new Date("2027-01-10T10:00").toISOString(),
+        participants: [
+          expect.objectContaining({ outcome: "NO_RESULT", score: null }),
+          expect.objectContaining({ outcome: "NO_RESULT", score: null }),
+        ],
+      }),
+    ),
+  );
+});
+
+test("opens calendar planning with the selected date and planned state", async () => {
+  render(<MatchWorkspace initialPlannedDate="2027-01-10" />);
+
+  const heading = await screen.findByRole("heading", {
+    name: "Planear partida",
+  });
+  const form = heading.closest("form")!;
+  expect(within(form).getByLabelText("Fecha y hora")).toHaveValue(
+    "2027-01-10T18:00",
+  );
+  expect(within(form).getByLabelText(/^Estado/)).toHaveValue("PLANNED");
+  expect(
+    within(form).getByRole("button", { name: "Guardar planificación" }),
+  ).toBeVisible();
+});
+
 test("fills every participant field up to the game's maximum", async () => {
   getGame.mockResolvedValueOnce({
     game: {
@@ -254,6 +311,57 @@ test("shows the history and keeps anonymous visitors out of it", async () => {
   );
 });
 
+test("filters match history by a complete local date without asking for a time", async () => {
+  render(<MatchWorkspace />);
+  await screen.findByText("Historial de partidas");
+
+  fireEvent.change(screen.getByLabelText("Fecha"), {
+    target: { value: "2026-11-13" },
+  });
+
+  const start = new Date(2026, 10, 13);
+  const end = new Date(2026, 10, 14);
+  await waitFor(() =>
+    expect(listMatches).toHaveBeenCalledWith(
+      expect.objectContaining({
+        page: 1,
+        startedFrom: start.toISOString(),
+        startedBefore: end.toISOString(),
+      }),
+    ),
+  );
+  expect(screen.getByRole("button", { name: "Limpiar fecha" })).toBeVisible();
+});
+
+test("opens and clears an exclusive match history for one game", async () => {
+  render(<MatchWorkspace initialHistoryGameId={gameId} />);
+
+  expect(
+    await screen.findByRole("heading", { name: "Historial de Sky Team" }),
+  ).toBeVisible();
+  await waitFor(() =>
+    expect(listMatches).toHaveBeenCalledWith(
+      expect.objectContaining({ gameId, page: 1 }),
+    ),
+  );
+  expect(
+    screen.queryByRole("heading", { name: "Registrar partida" }),
+  ).not.toBeInTheDocument();
+
+  fireEvent.click(
+    screen.getByRole("button", { name: "Ver todas las partidas" }),
+  );
+
+  await waitFor(() =>
+    expect(listMatches).toHaveBeenLastCalledWith(
+      expect.objectContaining({ gameId: undefined, page: 1 }),
+    ),
+  );
+  expect(
+    screen.getByRole("heading", { name: "Historial de partidas" }),
+  ).toBeVisible();
+});
+
 test("distinguishes match outcomes by color", async () => {
   listMatches.mockResolvedValueOnce({
     matches: [
@@ -283,6 +391,66 @@ test("distinguishes match outcomes by color", async () => {
   );
   expect(screen.getByText("Derrota · 5")).toHaveClass("match-outcome-loss");
   expect(screen.getByText("Empate · 7")).toHaveClass("match-outcome-draw");
+});
+
+test("turns a planned match into a completed result", async () => {
+  const plannedMatch = {
+    ...recordedMatch,
+    id: "ed26fd0c-0371-4939-8686-5cfdb12ebdb0",
+    status: "PLANNED" as const,
+    startedAt: "2027-01-10T15:00:00.000Z",
+    durationMinutes: null,
+    participants: recordedMatch.participants.map((participant) => ({
+      ...participant,
+      outcome: "NO_RESULT" as const,
+      score: null,
+    })),
+  };
+  listMatches.mockResolvedValueOnce({
+    matches: [plannedMatch],
+    pagination: { page: 1, pageSize: 12, totalItems: 1, totalPages: 1 },
+  });
+  updateMatch.mockResolvedValueOnce({ match: recordedMatch });
+
+  render(<MatchWorkspace />);
+
+  expect(await screen.findByText("Planeada")).toHaveClass(
+    "match-status-planned",
+  );
+  expect(screen.getByRole("option", { name: "Planeadas" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Registrar resultado" }));
+
+  const heading = await screen.findByRole("heading", {
+    name: "Registrar resultado de Sky Team",
+  });
+  const form = heading.closest("form")!;
+  expect(within(form).getByLabelText(/^Estado/)).toHaveValue("COMPLETED");
+  expect(within(form).getByLabelText(/^Estado/)).toBeDisabled();
+  const outcomes = within(form).getAllByLabelText("Resultado");
+  const scores = within(form).getAllByLabelText("Puntuación");
+  fireEvent.change(outcomes[0]!, { target: { value: "WIN" } });
+  fireEvent.change(outcomes[1]!, { target: { value: "LOSS" } });
+  fireEvent.change(scores[0]!, { target: { value: "20" } });
+  fireEvent.change(scores[1]!, { target: { value: "12" } });
+  fireEvent.submit(
+    within(form).getByRole("button", { name: "Guardar resultado" }),
+  );
+
+  await waitFor(() =>
+    expect(updateMatch).toHaveBeenCalledWith(
+      plannedMatch.id,
+      expect.objectContaining({
+        status: "COMPLETED",
+        participants: [
+          expect.objectContaining({ outcome: "WIN", score: 20 }),
+          expect.objectContaining({ outcome: "LOSS", score: 12 }),
+        ],
+      }),
+    ),
+  );
+  expect(
+    await screen.findByText("El resultado quedó registrado."),
+  ).toBeVisible();
 });
 
 test("keeps crowded match cards compact and shows every detail in a modal", async () => {

@@ -390,6 +390,12 @@ export async function findMatches(
   if (query.status !== undefined) {
     filters.push(`matches.status_code = $${values.push(query.status)}`);
   }
+  if (query.startedFrom !== undefined) {
+    filters.push(`matches.started_at >= $${values.push(query.startedFrom)}`);
+  }
+  if (query.startedBefore !== undefined) {
+    filters.push(`matches.started_at < $${values.push(query.startedBefore)}`);
+  }
   const where = filters.join(" AND ");
   const offset = (query.page - 1) * query.pageSize;
   const itemValues = [...values, query.pageSize, offset];
@@ -467,15 +473,27 @@ export async function updateMatch(
           kind: "final_outcome_not_allowed",
         } as const);
       }
+      if (
+        nextStatus === "PLANNED" &&
+        input.participants.some(({ score }) => score != null)
+      ) {
+        return rollback(client, {
+          kind: "final_outcome_not_allowed",
+        } as const);
+      }
     } else if (nextStatus !== "COMPLETED") {
-      const finalOutcomes = await client.query<{ found: boolean }>(
+      const finalResults = await client.query<{ found: boolean }>(
         `SELECT EXISTS (
            SELECT 1 FROM match_participants
-           WHERE match_id = $1 AND outcome_type_code <> 'NO_RESULT'
+           WHERE match_id = $1
+             AND (
+               outcome_type_code <> 'NO_RESULT'
+               OR ($2 = 'PLANNED' AND score_numeric IS NOT NULL)
+             )
          ) AS found`,
-        [matchId],
+        [matchId, nextStatus],
       );
-      if (finalOutcomes.rows[0]?.found) {
+      if (finalResults.rows[0]?.found) {
         return rollback(client, {
           kind: "final_outcome_not_allowed",
         } as const);

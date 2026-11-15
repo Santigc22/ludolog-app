@@ -183,6 +183,9 @@ test("lists copies and opens their complete detail", async () => {
     "href",
     `/partidas?gameId=${game.id}&copyId=${copy.id}&editionId=${edition.id}`,
   );
+  expect(
+    screen.getByRole("link", { name: "Ver historial de este juego" }),
+  ).toHaveAttribute("href", `/partidas?historyGameId=${game.id}`);
   expect(getCopy).toHaveBeenCalledWith(copy.id);
 
   fireEvent.click(

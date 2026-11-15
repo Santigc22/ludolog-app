@@ -52,7 +52,10 @@ export function SiteNavigation() {
       <Link href="/catalogo">Catálogo</Link>
       <Link href="/ludotecas">Mis ludotecas</Link>
       {sessionState === "authenticated" ? (
-        <Link href="/partidas">Partidas</Link>
+        <>
+          <Link href="/partidas">Partidas</Link>
+          <Link href="/calendario">Calendario de juegos</Link>
+        </>
       ) : null}
       {canModerate ? <Link href="/moderacion">Moderación</Link> : null}
       <Link href="/perfil">Mi perfil</Link>

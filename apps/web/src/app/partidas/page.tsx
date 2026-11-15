@@ -7,6 +7,8 @@ export default async function MatchesPage({
     gameId?: string;
     editionId?: string;
     copyId?: string;
+    historyGameId?: string;
+    plannedDate?: string;
   }>;
 }) {
   const query = await searchParams;
@@ -16,6 +18,8 @@ export default async function MatchesPage({
         initialGameId={query.gameId}
         initialEditionId={query.editionId}
         initialCopyId={query.copyId}
+        initialHistoryGameId={query.historyGameId}
+        initialPlannedDate={query.plannedDate}
       />
     </main>
   );

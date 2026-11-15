@@ -207,6 +207,7 @@ export const lookupSeeds: readonly LookupSeed[] = [
   {
     table: "match_statuses",
     rows: [
+      { code: "PLANNED", name: "Planned" },
       { code: "COMPLETED", name: "Completed" },
       { code: "INCOMPLETE", name: "Incomplete" },
       { code: "CANCELLED", name: "Cancelled" },

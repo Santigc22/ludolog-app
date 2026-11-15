@@ -6,6 +6,7 @@ import {
 } from "../common/pagination.contracts.js";
 
 export const MatchStatusSchema = z.enum([
+  "PLANNED",
   "COMPLETED",
   "INCOMPLETE",
   "CANCELLED",
@@ -71,8 +72,15 @@ function validateParticipantResults(
     if (participant.outcome !== "NO_RESULT") {
       context.addIssue({
         code: "custom",
-        message: "Incomplete or cancelled matches cannot have final outcomes.",
+        message: "Only completed matches can have final outcomes.",
         path: ["participants", index, "outcome"],
+      });
+    }
+    if (value.status === "PLANNED" && participant.score != null) {
+      context.addIssue({
+        code: "custom",
+        message: "Planned matches cannot have scores.",
+        path: ["participants", index, "score"],
       });
     }
   });
@@ -193,7 +201,20 @@ export const MatchSchema = z.object({
 export const MatchListQuerySchema = PaginationQuerySchema.extend({
   gameId: z.uuid().optional(),
   status: MatchStatusSchema.optional(),
-}).strict();
+  startedFrom: z.iso.datetime({ offset: true }).optional(),
+  startedBefore: z.iso.datetime({ offset: true }).optional(),
+})
+  .strict()
+  .refine(
+    ({ startedFrom, startedBefore }) =>
+      startedFrom === undefined ||
+      startedBefore === undefined ||
+      new Date(startedFrom) < new Date(startedBefore),
+    {
+      message: "startedBefore must be after startedFrom.",
+      path: ["startedBefore"],
+    },
+  );
 export const MatchIdParamsSchema = z.object({ matchId: z.uuid() });
 export const MatchResponseSchema = z.object({ match: MatchSchema });
 export const MatchListResponseSchema = z.object({

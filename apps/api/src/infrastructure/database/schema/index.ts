@@ -715,7 +715,7 @@ export const matches = pgTable(
     }),
     check(
       "matches_status_allowed",
-      sql`${table.statusCode} IN ('COMPLETED', 'INCOMPLETE', 'CANCELLED')`,
+      sql`${table.statusCode} IN ('PLANNED', 'COMPLETED', 'INCOMPLETE', 'CANCELLED')`,
     ),
     check(
       "matches_visibility_allowed",

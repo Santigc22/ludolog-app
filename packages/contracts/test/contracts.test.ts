@@ -25,6 +25,7 @@ import {
   LoginRequestSchema,
   MoveCopyRequestSchema,
   CreateMatchRequestSchema,
+  MatchListQuerySchema,
   UpdateMatchRequestSchema,
   PaginationQuerySchema,
   RegisterRequestSchema,
@@ -189,6 +190,53 @@ test("validates match participants, outcomes and incomplete sessions", () => {
   expect(UpdateMatchRequestSchema.safeParse({ participants: [] }).success).toBe(
     false,
   );
+});
+
+test("validates ordered match history date boundaries", () => {
+  expect(
+    MatchListQuerySchema.parse({
+      startedFrom: "2026-11-13T05:00:00.000Z",
+      startedBefore: "2026-11-14T05:00:00.000Z",
+    }),
+  ).toMatchObject({
+    startedFrom: "2026-11-13T05:00:00.000Z",
+    startedBefore: "2026-11-14T05:00:00.000Z",
+  });
+  expect(
+    MatchListQuerySchema.safeParse({
+      startedFrom: "2026-11-14T05:00:00.000Z",
+      startedBefore: "2026-11-13T05:00:00.000Z",
+    }).success,
+  ).toBe(false);
+});
+
+test("keeps planned matches free of outcomes and scores", () => {
+  const base = {
+    gameId: "4e145b05-1f8c-4b3f-a535-3c474bb55e95",
+    status: "PLANNED",
+    startedAt: "2027-01-10T15:00:00.000Z",
+  };
+  expect(
+    CreateMatchRequestSchema.parse({
+      ...base,
+      participants: [{ guestName: "Invitada" }],
+    }),
+  ).toMatchObject({
+    status: "PLANNED",
+    participants: [{ outcome: "NO_RESULT" }],
+  });
+  expect(
+    CreateMatchRequestSchema.safeParse({
+      ...base,
+      participants: [{ guestName: "Invitada", score: 12 }],
+    }).success,
+  ).toBe(false);
+  expect(
+    CreateMatchRequestSchema.safeParse({
+      ...base,
+      participants: [{ guestName: "Invitada", outcome: "WIN" }],
+    }).success,
+  ).toBe(false);
 });
 
 test("normalizes copy creation and keeps lifecycle fields server-owned", () => {

@@ -1001,12 +1001,20 @@ export function CopyInventoryWorkspace({
             </p>
           ) : null}
 
-          <Link
-            className="primary-action link-action copy-match-action"
-            href={`/partidas?gameId=${encodeURIComponent(selected.game.id)}&copyId=${encodeURIComponent(selected.id)}${selected.gameEditionId ? `&editionId=${encodeURIComponent(selected.gameEditionId)}` : ""}`}
-          >
-            Registrar partida con esta copia
-          </Link>
+          <div className="copy-match-actions">
+            <Link
+              className="primary-action link-action"
+              href={`/partidas?gameId=${encodeURIComponent(selected.game.id)}&copyId=${encodeURIComponent(selected.id)}${selected.gameEditionId ? `&editionId=${encodeURIComponent(selected.gameEditionId)}` : ""}`}
+            >
+              Registrar partida con esta copia
+            </Link>
+            <Link
+              className="secondary-action link-action"
+              href={`/partidas?historyGameId=${encodeURIComponent(selected.game.id)}`}
+            >
+              Ver historial de este juego
+            </Link>
+          </div>
 
           {canManage &&
           selected.lifecycle === "ACTIVE" &&

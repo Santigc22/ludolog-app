@@ -40,6 +40,7 @@ const outcomeOptions: ReadonlyArray<[MatchOutcome, string]> = [
 ];
 
 const statusLabels: Record<MatchStatus, string> = {
+  PLANNED: "Planeada",
   COMPLETED: "Completada",
   INCOMPLETE: "Inconclusa",
   CANCELLED: "Cancelada",
@@ -56,6 +57,41 @@ function localDateTime(isoDate = new Date().toISOString()) {
   const date = new Date(isoDate);
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 16);
+}
+
+function plannedLocalDateTime(value?: string) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year!, month! - 1, day!, 18, 0);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month! - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return `${value}T18:00`;
+}
+
+function localDayRange(value: string): {
+  startedFrom?: string;
+  startedBefore?: string;
+} {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return {};
+  const start = new Date(year, month - 1, day);
+  if (
+    start.getFullYear() !== year ||
+    start.getMonth() !== month - 1 ||
+    start.getDate() !== day
+  ) {
+    return {};
+  }
+  const end = new Date(year, month - 1, day + 1);
+  return {
+    startedFrom: start.toISOString(),
+    startedBefore: end.toISOString(),
+  };
 }
 
 function participantFromSession(
@@ -108,11 +144,16 @@ export function MatchWorkspace({
   initialGameId,
   initialEditionId,
   initialCopyId,
+  initialHistoryGameId,
+  initialPlannedDate,
 }: {
   initialGameId?: string | undefined;
   initialEditionId?: string | undefined;
   initialCopyId?: string | undefined;
+  initialHistoryGameId?: string | undefined;
+  initialPlannedDate?: string | undefined;
 }) {
+  const initialPlanningDateTime = plannedLocalDateTime(initialPlannedDate);
   const keySequence = useRef(1);
   const detailDialog = useRef<HTMLDialogElement>(null);
   const [loadState, setLoadState] = useState<LoadState>("loading");
@@ -126,15 +167,25 @@ export function MatchWorkspace({
   );
   const [sourceCopy, setSourceCopy] = useState<CopyDetail | null>(null);
   const [participants, setParticipants] = useState<ParticipantDraft[]>([]);
-  const [status, setStatus] = useState<MatchStatus>("COMPLETED");
+  const [status, setStatus] = useState<MatchStatus>(
+    initialPlanningDateTime ? "PLANNED" : "COMPLETED",
+  );
   const [showForm, setShowForm] = useState(
-    initialGameId !== undefined || initialCopyId !== undefined,
+    initialGameId !== undefined ||
+      initialCopyId !== undefined ||
+      initialPlanningDateTime !== null,
   );
   const [editing, setEditing] = useState<Match | null>(null);
+  const [completingPlanned, setCompletingPlanned] = useState(false);
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
   const [reload, setReload] = useState(0);
   const [statusFilter, setStatusFilter] = useState<MatchStatus | "ALL">("ALL");
+  const [dateFilter, setDateFilter] = useState("");
+  const [gameFilter, setGameFilter] = useState(initialHistoryGameId ?? "");
+  const [fetchedHistoryGameName, setFetchedHistoryGameName] = useState<
+    string | null
+  >(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
   const [detailMatch, setDetailMatch] = useState<Match | null>(null);
@@ -149,6 +200,13 @@ export function MatchWorkspace({
     () => games.find(({ id }) => id === selectedGameId) ?? null,
     [games, selectedGameId],
   );
+  const listedHistoryGameName = useMemo(
+    () => games.find(({ id }) => id === gameFilter)?.name ?? null,
+    [gameFilter, games],
+  );
+  const historyGameName = gameFilter
+    ? (listedHistoryGameName ?? fetchedHistoryGameName)
+    : null;
 
   useEffect(() => {
     let active = true;
@@ -181,7 +239,9 @@ export function MatchWorkspace({
       listMatches({
         page,
         pageSize: 12,
+        gameId: gameFilter || undefined,
         status: statusFilter === "ALL" ? undefined : statusFilter,
+        ...localDayRange(dateFilter),
       }),
       listGames({ page: 1, pageSize: 100, sort: "name" }),
     ])
@@ -202,7 +262,22 @@ export function MatchWorkspace({
     return () => {
       active = false;
     };
-  }, [loadState, page, reload, statusFilter]);
+  }, [dateFilter, gameFilter, loadState, page, reload, statusFilter]);
+
+  useEffect(() => {
+    if (!gameFilter || listedHistoryGameName || loadState !== "ready") return;
+    let active = true;
+    void getGame(gameFilter)
+      .then(({ game }) => {
+        if (active) setFetchedHistoryGameName(game.name);
+      })
+      .catch(() => {
+        if (active) setFetchedHistoryGameName("Juego seleccionado");
+      });
+    return () => {
+      active = false;
+    };
+  }, [gameFilter, listedHistoryGameName, loadState]);
 
   useEffect(() => {
     if (!selectedGameId || loadState !== "ready") return;
@@ -267,6 +342,19 @@ export function MatchWorkspace({
     setDetailMatch(null);
   }
 
+  function clearHistoryGameFilter() {
+    setGameFilter("");
+    setFetchedHistoryGameName(null);
+    setPage(1);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("historyGameId");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }
+
   function resetForm({
     preserveInitialContext = true,
   }: { preserveInitialContext?: boolean } = {}) {
@@ -274,6 +362,7 @@ export function MatchWorkspace({
       ? (initialGameId ?? sourceCopy?.game.id ?? "")
       : "";
     setEditing(null);
+    setCompletingPlanned(false);
     setStatus("COMPLETED");
     setSelectedGameId(nextGameId);
     if (!nextGameId) setSelectedGame(null);
@@ -316,15 +405,19 @@ export function MatchWorkspace({
     );
   }
 
-  function beginEdit(match: Match) {
+  function beginEdit(
+    match: Match,
+    { registerResult = false }: { registerResult?: boolean } = {},
+  ) {
     closeDetail();
     setEditing(match);
+    setCompletingPlanned(registerResult);
     setShowForm(true);
     setMessage(null);
     setSelectedGameId(match.game.id);
     setSelectedEditionId(match.edition?.id ?? "");
     setSourceCopy(null);
-    setStatus(match.status);
+    setStatus(registerResult ? "COMPLETED" : match.status);
     setParticipants(
       match.participants.map((participant) => ({
         key: keySequence.current++,
@@ -347,7 +440,12 @@ export function MatchWorkspace({
       guestName:
         participant.userId === null ? participant.guestName.trim() : null,
       outcome: status === "COMPLETED" ? participant.outcome : "NO_RESULT",
-      score: participant.score.trim() ? Number(participant.score) : null,
+      score:
+        status === "PLANNED"
+          ? null
+          : participant.score.trim()
+            ? Number(participant.score)
+            : null,
     }));
     const common = {
       status,
@@ -366,7 +464,12 @@ export function MatchWorkspace({
     try {
       if (editing) {
         await updateMatch(editing.id, common);
-        setMessage({ kind: "success", text: "La partida quedó actualizada." });
+        setMessage({
+          kind: "success",
+          text: completingPlanned
+            ? "El resultado quedó registrado."
+            : "La partida quedó actualizada.",
+        });
       } else {
         await createMatch({
           gameId: selectedGame.id,
@@ -374,7 +477,13 @@ export function MatchWorkspace({
           copyId: sourceCopy?.id ?? null,
           ...common,
         });
-        setMessage({ kind: "success", text: "La partida quedó registrada." });
+        setMessage({
+          kind: "success",
+          text:
+            status === "PLANNED"
+              ? "La partida quedó planeada."
+              : "La partida quedó registrada.",
+        });
       }
       setShowForm(false);
       resetForm({ preserveInitialContext: false });
@@ -471,10 +580,22 @@ export function MatchWorkspace({
         <form className="match-form stack-form" onSubmit={handleSubmit}>
           <div>
             <div className="eyebrow">
-              {editing ? "Editar historial" : "Nueva sesión"}
+              {completingPlanned
+                ? "Completar partida planeada"
+                : editing
+                  ? "Editar historial"
+                  : status === "PLANNED"
+                    ? "Nueva planificación"
+                    : "Nueva sesión"}
             </div>
             <h2>
-              {editing ? `Editar ${editing.game.name}` : "Registrar partida"}
+              {completingPlanned
+                ? `Registrar resultado de ${editing?.game.name ?? "la partida"}`
+                : editing
+                  ? `Editar ${editing.game.name}`
+                  : status === "PLANNED"
+                    ? "Planear partida"
+                    : "Registrar partida"}
             </h2>
           </div>
 
@@ -540,8 +661,12 @@ export function MatchWorkspace({
                 name="startedAt"
                 type="datetime-local"
                 required
-                defaultValue={localDateTime(editing?.startedAt)}
-                key={editing?.id ?? "new-date"}
+                defaultValue={
+                  editing
+                    ? localDateTime(editing.startedAt)
+                    : (initialPlanningDateTime ?? localDateTime())
+                }
+                key={editing?.id ?? initialPlanningDateTime ?? "new-date"}
               />
             </label>
             <label>
@@ -559,6 +684,7 @@ export function MatchWorkspace({
               <select
                 name="status"
                 value={status}
+                disabled={completingPlanned}
                 onChange={(event) => {
                   const next = event.target.value as MatchStatus;
                   setStatus(next);
@@ -567,15 +693,20 @@ export function MatchWorkspace({
                       current.map((participant) => ({
                         ...participant,
                         outcome: "NO_RESULT",
+                        score: next === "PLANNED" ? "" : participant.score,
                       })),
                     );
                   }
                 }}
               >
+                <option value="PLANNED">Planeada</option>
                 <option value="COMPLETED">Completada</option>
                 <option value="INCOMPLETE">Inconclusa</option>
                 <option value="CANCELLED">Cancelada</option>
               </select>
+              {completingPlanned ? (
+                <small>Al guardar, la partida quedará como completada.</small>
+              ) : null}
             </label>
             <label>
               Visibilidad
@@ -664,6 +795,7 @@ export function MatchWorkspace({
                     <input
                       type="number"
                       step="0.0001"
+                      disabled={status === "PLANNED"}
                       value={participant.score}
                       onChange={(event) =>
                         updateParticipant(participant.key, {
@@ -715,9 +847,13 @@ export function MatchWorkspace({
             >
               {pending
                 ? "Guardando…"
-                : editing
-                  ? "Guardar cambios"
-                  : "Registrar partida"}
+                : completingPlanned
+                  ? "Guardar resultado"
+                  : editing
+                    ? "Guardar cambios"
+                    : status === "PLANNED"
+                      ? "Guardar planificación"
+                      : "Registrar partida"}
             </button>
             {editing ? (
               <button
@@ -747,24 +883,70 @@ export function MatchWorkspace({
       <div className="match-history-heading">
         <div>
           <div className="eyebrow">Registro personal</div>
-          <h2>Historial de partidas</h2>
+          <h2>
+            {gameFilter
+              ? `Historial de ${historyGameName ?? "este juego"}`
+              : "Historial de partidas"}
+          </h2>
         </div>
-        <label>
-          Estado
-          <select
-            value={statusFilter}
-            onChange={(event) => {
-              setStatusFilter(event.target.value as MatchStatus | "ALL");
-              setPage(1);
-            }}
-          >
-            <option value="ALL">Todos</option>
-            <option value="COMPLETED">Completadas</option>
-            <option value="INCOMPLETE">Inconclusas</option>
-            <option value="CANCELLED">Canceladas</option>
-          </select>
-        </label>
+        <div className="match-history-filters">
+          <label>
+            Estado
+            <select
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.target.value as MatchStatus | "ALL");
+                setPage(1);
+              }}
+            >
+              <option value="ALL">Todos</option>
+              <option value="PLANNED">Planeadas</option>
+              <option value="COMPLETED">Completadas</option>
+              <option value="INCOMPLETE">Inconclusas</option>
+              <option value="CANCELLED">Canceladas</option>
+            </select>
+          </label>
+          <label>
+            Fecha
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={(event) => {
+                setDateFilter(event.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+          {dateFilter ? (
+            <button
+              className="text-filter-action"
+              type="button"
+              onClick={() => {
+                setDateFilter("");
+                setPage(1);
+              }}
+            >
+              Limpiar fecha
+            </button>
+          ) : null}
+        </div>
       </div>
+
+      {gameFilter ? (
+        <div className="match-game-filter-context" aria-live="polite">
+          <p>
+            Mostrando únicamente las partidas de{" "}
+            <strong>{historyGameName ?? "este juego"}</strong>.
+          </p>
+          <button
+            className="text-filter-action"
+            type="button"
+            onClick={clearHistoryGameFilter}
+          >
+            Ver todas las partidas
+          </button>
+        </div>
+      ) : null}
 
       {matches.length === 0 ? (
         <div className="collection-empty compact-empty">
@@ -880,8 +1062,19 @@ export function MatchWorkspace({
                     type="button"
                     onClick={() => beginEdit(match)}
                   >
-                    Editar
+                    {match.status === "PLANNED"
+                      ? "Editar planificación"
+                      : "Editar"}
                   </button>
+                  {match.status === "PLANNED" ? (
+                    <button
+                      className="primary-action"
+                      type="button"
+                      onClick={() => beginEdit(match, { registerResult: true })}
+                    >
+                      Registrar resultado
+                    </button>
+                  ) : null}
                   {match.status !== "CANCELLED" ? (
                     <button
                       className="danger-action"
@@ -1037,8 +1230,32 @@ export function MatchWorkspace({
             </section>
 
             <div className="match-detail-actions">
+              {detailMatch.status === "PLANNED" ? (
+                <>
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => beginEdit(detailMatch)}
+                  >
+                    Editar planificación
+                  </button>
+                  <button
+                    className="primary-action"
+                    type="button"
+                    onClick={() =>
+                      beginEdit(detailMatch, { registerResult: true })
+                    }
+                  >
+                    Registrar resultado
+                  </button>
+                </>
+              ) : null}
               <button
-                className="primary-action"
+                className={
+                  detailMatch.status === "PLANNED"
+                    ? "secondary-action"
+                    : "primary-action"
+                }
                 type="button"
                 onClick={closeDetail}
               >

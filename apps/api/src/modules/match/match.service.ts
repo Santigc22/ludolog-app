@@ -114,7 +114,8 @@ export async function updateMatchForUser(
   }
   throw new ApplicationError({
     code: "MATCH_FINAL_OUTCOME_NOT_ALLOWED",
-    message: "Incomplete or cancelled matches cannot have final outcomes.",
+    message:
+      "Planned, incomplete or cancelled matches cannot have final outcomes; planned matches cannot have scores.",
     statusCode: 400,
   });
 }

@@ -17,6 +17,10 @@ export function listMatches(options?: Partial<MatchListQuery>) {
   });
   if (options?.gameId !== undefined) query.set("gameId", options.gameId);
   if (options?.status !== undefined) query.set("status", options.status);
+  if (options?.startedFrom !== undefined)
+    query.set("startedFrom", options.startedFrom);
+  if (options?.startedBefore !== undefined)
+    query.set("startedBefore", options.startedBefore);
   return apiFetch(`matches?${query}`, MatchListResponseSchema, {
     cache: "no-store",
   });

@@ -28,6 +28,7 @@ let gameId: string;
 let collectionId: string;
 let copyId: string;
 let matchId: string | null = null;
+let plannedMatchId: string | null = null;
 const suffix = randomUUID().slice(0, 8);
 
 async function register(label: string) {
@@ -115,6 +116,14 @@ afterAll(async () => {
       matchId,
     ]);
     await databasePool.query("DELETE FROM matches WHERE id = $1", [matchId]);
+  }
+  if (plannedMatchId !== null) {
+    await databasePool.query("DELETE FROM audit_logs WHERE resource_id = $1", [
+      plannedMatchId,
+    ]);
+    await databasePool.query("DELETE FROM matches WHERE id = $1", [
+      plannedMatchId,
+    ]);
   }
   await databasePool.query(
     "DELETE FROM copy_collection_history WHERE copy_id = $1",
@@ -204,6 +213,69 @@ test("creates a match linked to an accessible copy and collection snapshot", asy
   expect(audit.rows.map(({ action }) => action)).toContain("match.created");
 });
 
+test("creates a future planned match and later records its result", async () => {
+  const plannedResponse = await fetch(`${baseUrl}/api/v1/matches`, {
+    method: "POST",
+    headers: {
+      origin: apiConfig.webOrigin,
+      "content-type": "application/json",
+      cookie: ownerCookie,
+      "x-csrf-token": ownerCsrf,
+    },
+    body: JSON.stringify({
+      gameId,
+      status: "PLANNED",
+      startedAt: "2027-01-10T15:00:00.000Z",
+      location: "Casa de la anfitriona",
+      participants: [{ userId: ownerId }, { guestName: "Invitada futura" }],
+    }),
+  });
+  const plannedSnapshot = await plannedResponse.clone().json();
+  expect(plannedResponse.status, JSON.stringify(plannedSnapshot)).toBe(201);
+  const planned = MatchResponseSchema.parse(await plannedResponse.json()).match;
+  plannedMatchId = planned.id;
+  expect(planned).toMatchObject({
+    status: "PLANNED",
+    participants: [
+      { outcome: "NO_RESULT", score: null },
+      { outcome: "NO_RESULT", score: null },
+    ],
+  });
+
+  const completedResponse = await fetch(
+    `${baseUrl}/api/v1/matches/${planned.id}`,
+    {
+      method: "PATCH",
+      headers: {
+        origin: apiConfig.webOrigin,
+        "content-type": "application/json",
+        cookie: ownerCookie,
+        "x-csrf-token": ownerCsrf,
+      },
+      body: JSON.stringify({
+        status: "COMPLETED",
+        durationMinutes: 90,
+        participants: [
+          { userId: ownerId, outcome: "WIN", score: 20 },
+          { guestName: "Invitada futura", outcome: "LOSS", score: 12 },
+        ],
+      }),
+    },
+  );
+  const completedSnapshot = await completedResponse.clone().json();
+  expect(completedResponse.status, JSON.stringify(completedSnapshot)).toBe(200);
+  expect(
+    MatchResponseSchema.parse(await completedResponse.json()).match,
+  ).toMatchObject({
+    status: "COMPLETED",
+    durationMinutes: 90,
+    participants: [
+      { outcome: "WIN", score: 20 },
+      { outcome: "LOSS", score: 12 },
+    ],
+  });
+});
+
 test("lists and updates the owner's match without exposing it to another user", async () => {
   const listResponse = await fetch(
     `${baseUrl}/api/v1/matches?page=1&pageSize=20`,
@@ -213,6 +285,34 @@ test("lists and updates the owner's match without exposing it to another user", 
   );
   const list = MatchListResponseSchema.parse(await listResponse.json());
   expect(list.matches.map(({ id }) => id)).toContain(matchId);
+
+  const matchingDateResponse = await fetch(
+    `${baseUrl}/api/v1/matches?${new URLSearchParams({
+      page: "1",
+      pageSize: "20",
+      startedFrom: "2026-11-13T00:00:00.000Z",
+      startedBefore: "2026-11-14T00:00:00.000Z",
+    })}`,
+    { headers: { origin: apiConfig.webOrigin, cookie: ownerCookie } },
+  );
+  const matchingDate = MatchListResponseSchema.parse(
+    await matchingDateResponse.json(),
+  );
+  expect(matchingDate.matches.map(({ id }) => id)).toContain(matchId);
+
+  const emptyDateResponse = await fetch(
+    `${baseUrl}/api/v1/matches?${new URLSearchParams({
+      page: "1",
+      pageSize: "20",
+      startedFrom: "2026-11-14T00:00:00.000Z",
+      startedBefore: "2026-11-15T00:00:00.000Z",
+    })}`,
+    { headers: { origin: apiConfig.webOrigin, cookie: ownerCookie } },
+  );
+  const emptyDate = MatchListResponseSchema.parse(
+    await emptyDateResponse.json(),
+  );
+  expect(emptyDate.matches.map(({ id }) => id)).not.toContain(matchId);
 
   const hidden = await fetch(`${baseUrl}/api/v1/matches/${matchId}`, {
     headers: { origin: apiConfig.webOrigin, cookie: strangerCookie },

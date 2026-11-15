@@ -41,6 +41,9 @@ describe("SiteNavigation", () => {
       "href",
       "/partidas",
     );
+    expect(
+      screen.getByRole("link", { name: "Calendario de juegos" }),
+    ).toHaveAttribute("href", "/calendario");
   });
 
   test("shows access to an anonymous visitor", async () => {
@@ -52,6 +55,9 @@ describe("SiteNavigation", () => {
     ).toHaveAttribute("href", "/acceso");
     expect(screen.queryByRole("link", { name: "Moderación" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Partidas" })).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: "Calendario de juegos" }),
+    ).toBeNull();
   });
 
   test.each(["MODERATOR", "ADMIN"] as const)(
